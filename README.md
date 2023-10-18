@@ -55,6 +55,4 @@ Implement the ability to sync encrypted password data securely across multiple d
 ### Password Expiry and Renewal: 
 Allow users to set an expiration period for their stored passwords. Prompt users to renew their passwords periodically for improved security.
 
-#### Remember to adhere to secure coding practices throughout the development process to minimize vulnerabilities and ensure the highest level of data protection.
 
-### Good luck with your project!
