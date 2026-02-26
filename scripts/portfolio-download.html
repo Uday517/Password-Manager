@@ -1,0 +1,195 @@
+<!--
+  Portfolio Download Section
+  Add this to your portfolio site to provide dynamic download links
+  that always point to the latest GitHub Release.
+
+  Replace GITHUB_USER and GITHUB_REPO with your values.
+-->
+
+<section class="project-card" id="vault-download">
+  <div class="project-header">
+    <span class="project-icon">🔐</span>
+    <div>
+      <h3>Vault Password Manager <span id="vault-version" class="version-badge">Loading...</span></h3>
+      <p class="project-tech">Java · JavaFX · AES-256-GCM · SQLite</p>
+    </div>
+  </div>
+
+  <p class="project-desc">
+    A secure, local-first password manager. Your data never leaves your device.
+    AES-256-GCM encryption with PBKDF2-SHA512 key derivation. Rebuilt from the
+    ground up after a full security audit that identified 9 critical vulnerabilities
+    in the original codebase.
+  </p>
+
+  <div class="security-badges">
+    <span class="badge">AES-256-GCM</span>
+    <span class="badge">PBKDF2-SHA512</span>
+    <span class="badge">Zero Cloud</span>
+    <span class="badge">Open Source</span>
+  </div>
+
+  <div class="download-buttons" id="vault-download-btns">
+    <a id="vault-btn-mac"   class="btn-download btn-mac"   href="#" style="display:none">
+      🍎 Download for macOS (.dmg)
+    </a>
+    <a id="vault-btn-win"   class="btn-download btn-win"   href="#" style="display:none">
+      🪟 Download for Windows (.msi)
+    </a>
+    <a id="vault-btn-linux" class="btn-download btn-linux" href="#" style="display:none">
+      🐧 Download for Linux (.deb)
+    </a>
+    <span id="vault-loading" style="color: #8B949E;">Loading download links...</span>
+  </div>
+
+  <a href="https://github.com/GITHUB_USER/GITHUB_REPO" class="source-link" target="_blank">
+    View source on GitHub →
+  </a>
+</section>
+
+<script>
+(async function loadVaultDownloads() {
+  const GITHUB_USER = 'GITHUB_USER';   // ← REPLACE THIS
+  const GITHUB_REPO = 'GITHUB_REPO';   // ← REPLACE THIS
+
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases/latest`
+    );
+    if (!res.ok) throw new Error('Not found');
+    const release = await res.json();
+
+    // Show version badge
+    const versionEl = document.getElementById('vault-version');
+    if (versionEl) versionEl.textContent = release.tag_name;
+
+    // Map assets to download buttons
+    const assets = release.assets || [];
+    const getUrl = ext => assets.find(a => a.name.endsWith(ext))?.browser_download_url;
+
+    const mac   = getUrl('.dmg');
+    const win   = getUrl('.msi');
+    const linux = getUrl('.deb');
+
+    const loading = document.getElementById('vault-loading');
+    if (loading) loading.style.display = 'none';
+
+    function showBtn(id, url) {
+      if (!url) return;
+      const btn = document.getElementById(id);
+      if (btn) { btn.href = url; btn.style.display = 'inline-flex'; }
+    }
+
+    showBtn('vault-btn-mac',   mac);
+    showBtn('vault-btn-win',   win);
+    showBtn('vault-btn-linux', linux);
+
+  } catch (err) {
+    const loading = document.getElementById('vault-loading');
+    if (loading) {
+      loading.innerHTML = 'Download links unavailable. <a href="https://github.com/GITHUB_USER/GITHUB_REPO/releases">View releases on GitHub</a>';
+    }
+  }
+})();
+</script>
+
+<!-- Minimal styles (adapt to match your portfolio's design system) -->
+<style>
+.project-card {
+  background: #161B22;
+  border: 1px solid #30363D;
+  border-radius: 12px;
+  padding: 28px;
+  max-width: 640px;
+}
+
+.project-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.project-icon {
+  font-size: 36px;
+}
+
+.project-card h3 {
+  margin: 0;
+  color: #E6EDF3;
+  font-size: 20px;
+}
+
+.project-tech {
+  margin: 4px 0 0;
+  color: #8B949E;
+  font-size: 13px;
+}
+
+.version-badge {
+  font-size: 12px;
+  background: rgba(124,58,237,0.2);
+  color: #9061F9;
+  border-radius: 100px;
+  padding: 2px 10px;
+  vertical-align: middle;
+}
+
+.project-desc {
+  color: #8B949E;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+
+.security-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(34,197,94,0.1);
+  color: #4ADE80;
+  border: 1px solid rgba(34,197,94,0.3);
+  border-radius: 100px;
+  padding: 3px 10px;
+  letter-spacing: 0.3px;
+}
+
+.download-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.btn-mac   { background: rgba(124,58,237,0.15); color: #9061F9; border: 1px solid rgba(124,58,237,0.35); }
+.btn-win   { background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.35); }
+.btn-linux { background: rgba(245,158,11,0.15); color: #FCD34D; border: 1px solid rgba(245,158,11,0.35); }
+
+.btn-download:hover { filter: brightness(1.15); transform: translateY(-1px); }
+
+.source-link {
+  font-size: 13px;
+  color: #8B949E;
+  text-decoration: none;
+}
+
+.source-link:hover { color: #9061F9; }
+</style>

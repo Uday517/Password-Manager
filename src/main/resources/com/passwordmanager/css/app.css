@@ -1,0 +1,621 @@
+/* ═══════════════════════════════════════════════════════════════
+   Vault Password Manager — Dark Theme
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Design Tokens ────────────────────────────────────────────── */
+* {
+    -bg-base:        #0D1117;   /* darkest background */
+    -bg-surface:     #161B22;   /* cards, panels */
+    -bg-elevated:    #21262D;   /* hover, inputs */
+    -bg-sidebar:     #0D1117;
+    -bg-toolbar:     #161B22;
+    -clr-primary:    #7C3AED;   /* purple accent */
+    -clr-primary-h:  #9061F9;
+    -clr-danger:     #EF4444;
+    -clr-success:    #22C55E;
+    -clr-warning:    #F59E0B;
+    -text-primary:   #E6EDF3;
+    -text-secondary: #8B949E;
+    -text-muted:     #6E7681;
+    -border:         #30363D;
+    -border-focus:   #7C3AED;
+    -radius-sm:      4px;
+    -radius-md:      8px;
+    -radius-lg:      12px;
+}
+
+/* ── Root ─────────────────────────────────────────────────────── */
+.root {
+    -fx-font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", "Arial", sans-serif;
+    -fx-font-size: 14px;
+    -fx-base: #0D1117;
+    -fx-background: #0D1117;
+    -fx-control-inner-background: #21262D;
+    -fx-text-fill: #E6EDF3;
+}
+
+/* ── Screen Backgrounds ───────────────────────────────────────── */
+.screen-bg {
+    -fx-background-color: -bg-base;
+    -fx-background-radius: 0;
+}
+
+/* ── Logo / Branding ──────────────────────────────────────────── */
+.logo-icon {
+    -fx-font-size: 48px;
+}
+
+.app-name {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+    -fx-font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", sans-serif;
+}
+
+.app-tagline {
+    -fx-font-size: 14px;
+    -fx-text-fill: -text-secondary;
+}
+
+/* ── Cards ────────────────────────────────────────────────────── */
+.card {
+    -fx-background-color: -bg-surface;
+    -fx-background-radius: 12px;
+    -fx-border-color: -border;
+    -fx-border-radius: 12px;
+    -fx-border-width: 1px;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 24, 0, 0, 4);
+}
+
+.card-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+/* ── Form Fields ──────────────────────────────────────────────── */
+.field-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-secondary;
+    -fx-letter-spacing: 0.5px;
+}
+
+.text-input {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: -text-primary;
+    -fx-prompt-text-fill: -text-muted;
+    -fx-padding: 10px 14px;
+    -fx-font-size: 14px;
+    -fx-pref-height: 42px;
+}
+
+.text-input:focused {
+    -fx-border-color: -border-focus;
+    -fx-background-color: #1C2333;
+    -fx-effect: dropshadow(gaussian, rgba(124,58,237,0.3), 8, 0, 0, 0);
+}
+
+.text-area {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: -text-primary;
+    -fx-prompt-text-fill: -text-muted;
+    -fx-padding: 10px 14px;
+    -fx-font-size: 14px;
+    -fx-scroll-bar-policy: as-needed;
+}
+
+.text-area:focused {
+    -fx-border-color: -border-focus;
+}
+
+.text-area .content {
+    -fx-background-color: -bg-elevated;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn-primary {
+    -fx-background-color: -clr-primary;
+    -fx-text-fill: white;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 12px 24px;
+    -fx-cursor: hand;
+}
+
+.btn-primary:hover {
+    -fx-background-color: -clr-primary-h;
+    -fx-effect: dropshadow(gaussian, rgba(124,58,237,0.4), 12, 0, 0, 2);
+}
+
+.btn-primary:pressed {
+    -fx-background-color: #6D28D9;
+    -fx-scale-y: 0.97;
+}
+
+.btn-primary:disabled {
+    -fx-background-color: #374151;
+    -fx-text-fill: -text-muted;
+    -fx-opacity: 0.7;
+}
+
+.btn-secondary {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: -text-primary;
+    -fx-font-size: 13px;
+    -fx-padding: 8px 16px;
+    -fx-cursor: hand;
+}
+
+.btn-secondary:hover {
+    -fx-background-color: #2D333B;
+    -fx-border-color: -text-muted;
+}
+
+.btn-ghost {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 13px;
+    -fx-padding: 8px 12px;
+    -fx-cursor: hand;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+}
+
+.btn-ghost:hover {
+    -fx-background-color: -bg-elevated;
+    -fx-text-fill: -text-primary;
+}
+
+.btn-danger {
+    -fx-background-color: rgba(239,68,68,0.15);
+    -fx-border-color: rgba(239,68,68,0.4);
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: #F87171;
+    -fx-font-size: 13px;
+    -fx-padding: 8px 16px;
+    -fx-cursor: hand;
+}
+
+.btn-danger:hover {
+    -fx-background-color: rgba(239,68,68,0.25);
+    -fx-border-color: -clr-danger;
+    -fx-text-fill: -clr-danger;
+}
+
+.btn-add {
+    -fx-background-color: -clr-primary;
+    -fx-text-fill: white;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-cursor: hand;
+    -fx-padding: 0;
+}
+
+.btn-add:hover {
+    -fx-background-color: -clr-primary-h;
+}
+
+.btn-lock {
+    -fx-background-color: rgba(239,68,68,0.1);
+    -fx-border-color: rgba(239,68,68,0.3);
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-text-fill: #F87171;
+    -fx-font-size: 13px;
+    -fx-padding: 10px 16px;
+    -fx-cursor: hand;
+}
+
+.btn-lock:hover {
+    -fx-background-color: rgba(239,68,68,0.2);
+}
+
+/* ── Links ────────────────────────────────────────────────────── */
+.link {
+    -fx-text-fill: #9061F9;
+    -fx-underline: false;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+}
+
+.link:hover {
+    -fx-text-fill: -clr-primary-h;
+    -fx-underline: true;
+}
+
+/* ── Labels ───────────────────────────────────────────────────── */
+.hint-text {
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 14px;
+}
+
+.error-label {
+    -fx-text-fill: #F87171;
+    -fx-font-size: 13px;
+    -fx-background-color: rgba(239,68,68,0.1);
+    -fx-border-color: rgba(239,68,68,0.3);
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-padding: 8px 12px;
+}
+
+.warning-label {
+    -fx-text-fill: -clr-warning;
+    -fx-font-size: 13px;
+}
+
+/* ── Warning box ──────────────────────────────────────────────── */
+.warning-box {
+    -fx-background-color: rgba(245,158,11,0.1);
+    -fx-border-color: rgba(245,158,11,0.35);
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-padding: 12px 14px;
+}
+
+.warning-title {
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-text-fill: -clr-warning;
+}
+
+.warning-body {
+    -fx-font-size: 13px;
+    -fx-text-fill: #D4A017;
+}
+
+/* ── Lockout box ──────────────────────────────────────────────── */
+.lockout-box {
+    -fx-background-color: rgba(239,68,68,0.08);
+    -fx-border-color: rgba(239,68,68,0.3);
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-padding: 12px 14px;
+}
+
+.lockout-title {
+    -fx-font-weight: bold;
+    -fx-text-fill: -clr-danger;
+    -fx-font-size: 13px;
+}
+
+.lockout-message {
+    -fx-text-fill: #F87171;
+    -fx-font-size: 13px;
+}
+
+/* ── Password Strength Meter ──────────────────────────────────── */
+.strength-bar {
+    -fx-background-radius: 3px;
+    -fx-min-height: 6px;
+    -fx-pref-height: 6px;
+    -fx-background-color: -border;
+    -fx-transition: pref-width 200ms ease;
+}
+
+.strength-bar.strength-very-weak  { -fx-background-color: #EF4444; }
+.strength-bar.strength-weak       { -fx-background-color: #F97316; }
+.strength-bar.strength-fair       { -fx-background-color: -clr-warning; }
+.strength-bar.strength-strong     { -fx-background-color: #84CC16; }
+.strength-bar.strength-very-strong{ -fx-background-color: -clr-success; }
+
+.strength-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: -text-secondary;
+}
+
+/* ── Vault Layout ─────────────────────────────────────────────── */
+.vault-root {
+    -fx-background-color: -bg-base;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+.sidebar {
+    -fx-background-color: -bg-sidebar;
+    -fx-border-color: -border;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.sidebar-brand {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.sidebar-sep {
+    -fx-background-color: -border;
+    -fx-padding: 0;
+}
+
+.sidebar-section-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-muted;
+    -fx-letter-spacing: 1px;
+}
+
+.category-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 4px 8px;
+}
+
+.category-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 14px;
+    -fx-padding: 9px 12px;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+}
+
+.category-list .list-cell:hover {
+    -fx-background-color: -bg-elevated;
+    -fx-text-fill: -text-primary;
+}
+
+.category-list .list-cell:selected {
+    -fx-background-color: rgba(124,58,237,0.15);
+    -fx-text-fill: #9061F9;
+    -fx-font-weight: bold;
+}
+
+.session-timer {
+    -fx-font-size: 13px;
+    -fx-text-fill: -text-secondary;
+    -fx-font-family: "Courier New", monospace;
+}
+
+.session-timer.timer-warning {
+    -fx-text-fill: #F97316;
+}
+
+/* ── Entry List Panel ─────────────────────────────────────────── */
+.entry-list-panel {
+    -fx-background-color: -bg-surface;
+    -fx-border-color: -border;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.toolbar {
+    -fx-background-color: -bg-toolbar;
+}
+
+.search-field {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-text-fill: -text-primary;
+    -fx-prompt-text-fill: -text-muted;
+    -fx-padding: 8px 14px;
+    -fx-font-size: 14px;
+}
+
+.search-field:focused {
+    -fx-border-color: -border-focus;
+}
+
+.entry-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 4px;
+}
+
+.entry-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-background-radius: 8px;
+}
+
+.entry-list .list-cell:hover {
+    -fx-background-color: -bg-elevated;
+}
+
+.entry-list .list-cell:selected {
+    -fx-background-color: rgba(124,58,237,0.15);
+}
+
+.entry-cell {
+    -fx-padding: 10px 12px;
+}
+
+.entry-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.entry-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: -text-secondary;
+}
+
+.empty-state {
+    -fx-font-size: 14px;
+    -fx-text-fill: -text-muted;
+    -fx-text-alignment: center;
+}
+
+/* ── Detail Panel ─────────────────────────────────────────────── */
+.detail-panel {
+    -fx-background-color: -bg-base;
+}
+
+.detail-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+    -fx-border-color: transparent;
+}
+
+.detail-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+.no-selection-label {
+    -fx-font-size: 15px;
+    -fx-text-fill: -text-muted;
+}
+
+.detail-title {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.detail-field-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-muted;
+    -fx-letter-spacing: 0.8px;
+}
+
+.detail-field-value {
+    -fx-font-size: 15px;
+    -fx-text-fill: -text-primary;
+}
+
+.detail-field-muted {
+    -fx-font-size: 13px;
+    -fx-text-fill: -text-secondary;
+}
+
+.detail-password-masked {
+    -fx-font-size: 18px;
+    -fx-text-fill: -text-secondary;
+    -fx-letter-spacing: 3px;
+}
+
+.detail-password-revealed {
+    -fx-font-size: 16px;
+    -fx-text-fill: -text-primary;
+    -fx-font-family: "Courier New", "Consolas", monospace;
+    -fx-background-color: -bg-elevated;
+    -fx-background-radius: 4px;
+    -fx-padding: 6px 10px;
+}
+
+/* ── Dialog ───────────────────────────────────────────────────── */
+.dialog-root {
+    -fx-background-color: -bg-surface;
+}
+
+.dialog-footer {
+    -fx-background-color: -bg-surface;
+    -fx-border-color: -border;
+    -fx-border-width: 1px 0 0 0;
+}
+
+/* ── Generator Box ────────────────────────────────────────────── */
+.generator-box {
+    -fx-background-color: -bg-base;
+    -fx-border-color: -border;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+
+.generator-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-secondary;
+}
+
+.gen-check {
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+
+.gen-check .box {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 3px;
+}
+
+.gen-check:selected .box {
+    -fx-background-color: -clr-primary;
+    -fx-border-color: -clr-primary;
+}
+
+/* ── ComboBox ─────────────────────────────────────────────────── */
+.combo-box {
+    -fx-background-color: -bg-elevated;
+    -fx-border-color: -border;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: -text-primary;
+    -fx-padding: 4px 8px;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: -text-primary;
+    -fx-background-color: -bg-elevated;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -bg-surface;
+    -fx-border-color: -border;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: -bg-elevated;
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────── */
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: -border;
+    -fx-background-radius: 3px;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: -text-muted;
+}
+
+.scroll-bar .track {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+}
+
+.transparent-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+    -fx-border-color: transparent;
+}
+
+.transparent-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+/* ── Separator ────────────────────────────────────────────────── */
+.separator .line {
+    -fx-border-color: -border;
+    -fx-border-width: 1px 0 0 0;
+}

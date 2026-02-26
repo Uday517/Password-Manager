@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.*?>
+
+<HBox xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.passwordmanager.controllers.VaultController"
+      styleClass="vault-root" prefWidth="1100" prefHeight="680">
+
+    <!-- ── LEFT SIDEBAR ── -->
+    <VBox styleClass="sidebar" prefWidth="220" minWidth="180" maxWidth="260">
+        <padding><Insets top="24" right="0" bottom="24" left="0"/></padding>
+
+        <!-- App brand -->
+        <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 0 16 20 16;">
+            <Label text="🔐" style="-fx-font-size: 22px;"/>
+            <Label text="Vault" styleClass="sidebar-brand"/>
+        </HBox>
+
+        <Separator styleClass="sidebar-sep"/>
+
+        <!-- Categories -->
+        <Label text="CATEGORIES" styleClass="sidebar-section-label"
+               style="-fx-padding: 16 16 8 16;"/>
+        <ListView fx:id="categoryList" styleClass="category-list" VBox.vgrow="ALWAYS"/>
+
+        <Separator styleClass="sidebar-sep"/>
+
+        <!-- Session info -->
+        <VBox spacing="8" style="-fx-padding: 16 16 8 16;">
+            <Label fx:id="sessionTimerLabel" text="⏱ 15:00" styleClass="session-timer"/>
+            <Button fx:id="lockBtn" text="🔒  Lock Vault" styleClass="btn-lock"
+                    maxWidth="Infinity" onAction="#handleLock"/>
+        </VBox>
+    </VBox>
+
+    <!-- ── CENTER: ENTRY LIST ── -->
+    <VBox styleClass="entry-list-panel" prefWidth="300" minWidth="240">
+
+        <!-- Toolbar -->
+        <HBox styleClass="toolbar" spacing="8" alignment="CENTER_LEFT">
+            <padding><Insets top="12" right="12" bottom="12" left="12"/></padding>
+            <TextField fx:id="searchField" styleClass="search-field" promptText="🔍  Search..."
+                       HBox.hgrow="ALWAYS"/>
+            <Button fx:id="addEntryBtn" text="+" styleClass="btn-add"
+                    onAction="#handleAddEntry" prefWidth="36" prefHeight="36"/>
+        </HBox>
+
+        <Separator/>
+
+        <!-- Entries -->
+        <StackPane VBox.vgrow="ALWAYS">
+            <ListView fx:id="entryListView" styleClass="entry-list" VBox.vgrow="ALWAYS"/>
+            <Label fx:id="emptyStateLabel"
+                   text="No entries yet.\nClick + to add your first password."
+                   styleClass="empty-state" wrapText="true" textAlignment="CENTER"
+                   visible="false" StackPane.alignment="CENTER"/>
+        </StackPane>
+    </VBox>
+
+    <!-- ── RIGHT: DETAIL PANEL ── -->
+    <StackPane fx:id="detailPane" styleClass="detail-panel" HBox.hgrow="ALWAYS">
+
+        <!-- No selection placeholder -->
+        <VBox fx:id="noSelectionPane" alignment="CENTER" spacing="12" StackPane.alignment="CENTER">
+            <Label text="🔐" style="-fx-font-size: 48px; -fx-opacity: 0.3;"/>
+            <Label text="Select an entry to view details" styleClass="no-selection-label"/>
+        </VBox>
+
+        <!-- Entry detail content -->
+        <ScrollPane fitToWidth="true" styleClass="detail-scroll" visible="false">
+            <VBox fx:id="detailContent" spacing="0" visible="false">
+                <padding><Insets top="32" right="32" bottom="32" left="32"/></padding>
+
+                <!-- Title + favorite -->
+                <HBox alignment="CENTER_LEFT" spacing="12" style="-fx-padding: 0 0 24 0;">
+                    <Label fx:id="detailTitle" styleClass="detail-title" HBox.hgrow="ALWAYS"/>
+                    <Button fx:id="favoriteBtn" text="☆ Favorite" styleClass="btn-ghost"
+                            onAction="#handleToggleFavorite"/>
+                </HBox>
+
+                <!-- Fields -->
+                <VBox spacing="20">
+
+                    <!-- Username -->
+                    <VBox spacing="4">
+                        <Label text="USERNAME" styleClass="detail-field-label"/>
+                        <Label fx:id="detailUsername" styleClass="detail-field-value"/>
+                    </VBox>
+
+                    <!-- Password -->
+                    <VBox spacing="8">
+                        <Label text="PASSWORD" styleClass="detail-field-label"/>
+                        <StackPane>
+                            <Label fx:id="detailPasswordMasked" text="••••••••••••"
+                                   styleClass="detail-password-masked"/>
+                            <Label fx:id="detailPasswordRevealed" styleClass="detail-password-revealed"
+                                   visible="false"/>
+                        </StackPane>
+                        <HBox spacing="8">
+                            <Button fx:id="revealPasswordBtn" text="Reveal" styleClass="btn-secondary"
+                                    onAction="#handleRevealPassword"/>
+                            <Button fx:id="copyPasswordBtn" text="Copy" styleClass="btn-secondary"
+                                    onAction="#handleCopyPassword"/>
+                        </HBox>
+                    </VBox>
+
+                    <!-- URL -->
+                    <VBox spacing="4">
+                        <Label text="URL" styleClass="detail-field-label"/>
+                        <Label fx:id="detailUrl" styleClass="detail-field-value"/>
+                    </VBox>
+
+                    <!-- Category -->
+                    <VBox spacing="4">
+                        <Label text="CATEGORY" styleClass="detail-field-label"/>
+                        <Label fx:id="detailCategory" styleClass="detail-field-value"/>
+                    </VBox>
+
+                    <!-- Notes (hidden if empty) -->
+                    <HBox fx:id="notesRow" spacing="4" visible="false">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                            <Label text="NOTES" styleClass="detail-field-label"/>
+                            <Label fx:id="detailNotes" styleClass="detail-field-value" wrapText="true"/>
+                        </VBox>
+                    </HBox>
+
+                    <!-- Created date -->
+                    <VBox spacing="4">
+                        <Label text="ADDED" styleClass="detail-field-label"/>
+                        <Label fx:id="detailCreated" styleClass="detail-field-muted"/>
+                    </VBox>
+
+                    <!-- Actions -->
+                    <Separator/>
+                    <HBox spacing="8">
+                        <Button fx:id="editEntryBtn" text="Edit" styleClass="btn-secondary"
+                                onAction="#handleEditEntry"/>
+                        <Button fx:id="deleteEntryBtn" text="Delete" styleClass="btn-danger"
+                                onAction="#handleDeleteEntry"/>
+                    </HBox>
+                </VBox>
+            </VBox>
+        </ScrollPane>
+    </StackPane>
+</HBox>
