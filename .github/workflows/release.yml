@@ -1,0 +1,184 @@
+name: Release — Build Installers
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  # ── Linux DEB ──────────────────────────────────────────────────────────────
+  build-linux:
+    name: Linux DEB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Install jpackage dependencies
+        run: sudo apt-get install -y fakeroot
+
+      - name: Build JAR
+        run: mvn -B package -P linux --no-transfer-progress -DskipTests
+
+      - name: Copy runtime dependencies to app dir
+        run: |
+          mvn -B dependency:copy-dependencies -P linux \
+            --no-transfer-progress \
+            -DoutputDirectory=target/app \
+            -Dmdep.useRepositoryLayout=false \
+            -Dmdep.stripVersion=false
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Build DEB installer
+        run: |
+          jpackage \
+            --input target/app \
+            --main-jar vault.jar \
+            --main-class com.passwordmanager.Launcher \
+            --name "Vault" \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
+            --description "Secure local password manager" \
+            --vendor "Vault Password Manager" \
+            --type deb \
+            --linux-shortcut \
+            --linux-menu-group "Utilities" \
+            --linux-app-category "Utility" \
+            --java-options "--add-opens=java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens=java.base/java.nio=ALL-UNNAMED" \
+            --dest target/installer
+
+      - name: Also build AppImage-style (tar.gz)
+        run: |
+          jpackage \
+            --input target/app \
+            --main-jar vault.jar \
+            --main-class com.passwordmanager.Launcher \
+            --name "Vault" \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
+            --type app-image \
+            --java-options "--add-opens=java.base/java.lang=ALL-UNNAMED" \
+            --dest target/appimage
+          tar -czf "target/installer/Vault-${{ steps.version.outputs.VERSION }}-linux.tar.gz" \
+            -C target/appimage Vault
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/installer/*.deb
+            target/installer/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── macOS DMG ──────────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS DMG
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JAR
+        run: mvn -B package -P mac --no-transfer-progress -DskipTests
+
+      - name: Copy runtime dependencies to app dir
+        run: |
+          mvn -B dependency:copy-dependencies -P mac \
+            --no-transfer-progress \
+            -DoutputDirectory=target/app \
+            -Dmdep.useRepositoryLayout=false \
+            -Dmdep.stripVersion=false
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Build DMG
+        run: |
+          jpackage \
+            --input target/app \
+            --main-jar vault.jar \
+            --main-class com.passwordmanager.Launcher \
+            --name "Vault" \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
+            --description "Secure local password manager" \
+            --vendor "Vault Password Manager" \
+            --type dmg \
+            --java-options "--add-opens=java.base/java.lang=ALL-UNNAMED" \
+            --java-options "--add-opens=java.base/java.nio=ALL-UNNAMED" \
+            --dest target/installer
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/installer/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Windows MSI ────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows MSI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JAR
+        run: mvn -B package -P win --no-transfer-progress -DskipTests
+        shell: cmd
+
+      - name: Copy runtime dependencies to app dir
+        run: mvn -B dependency:copy-dependencies -P win --no-transfer-progress -DoutputDirectory=target/app -Dmdep.useRepositoryLayout=false -Dmdep.stripVersion=false
+        shell: cmd
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=$($env:GITHUB_REF_NAME -replace '^v', '')" >> $env:GITHUB_OUTPUT
+
+      - name: Build MSI installer
+        run: |
+          jpackage `
+            --input target\app `
+            --main-jar vault.jar `
+            --main-class com.passwordmanager.Launcher `
+            --name "Vault" `
+            --app-version "${{ steps.version.outputs.VERSION }}" `
+            --description "Secure local password manager" `
+            --vendor "Vault Password Manager" `
+            --type msi `
+            --win-dir-chooser `
+            --win-menu `
+            --win-shortcut `
+            --win-menu-group "Vault" `
+            --java-options "--add-opens=java.base/java.lang=ALL-UNNAMED" `
+            --java-options "--add-opens=java.base/java.nio=ALL-UNNAMED" `
+            --dest target\installer
+        shell: pwsh
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/installer/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

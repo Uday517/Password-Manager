@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.*?>
+
+<VBox xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.passwordmanager.controllers.AddEditEntryController"
+      styleClass="dialog-root" spacing="0">
+
+    <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" styleClass="transparent-scroll">
+        <VBox spacing="18">
+            <padding><Insets top="28" right="28" bottom="8" left="28"/></padding>
+
+            <Label fx:id="titleLabel" text="Add Entry" styleClass="card-title"/>
+
+            <!-- Title -->
+            <VBox spacing="6">
+                <Label text="Title *" styleClass="field-label"/>
+                <TextField fx:id="titleField" styleClass="text-input" promptText="e.g. Gmail, GitHub, Chase Visa"/>
+            </VBox>
+
+            <!-- Username -->
+            <VBox spacing="6">
+                <Label text="Username / Email" styleClass="field-label"/>
+                <TextField fx:id="usernameField" styleClass="text-input" promptText="your@email.com"/>
+            </VBox>
+
+            <!-- Password -->
+            <VBox spacing="6">
+                <Label text="Password *" styleClass="field-label"/>
+                <HBox spacing="8" alignment="CENTER_LEFT">
+                    <PasswordField fx:id="passwordField" styleClass="text-input" HBox.hgrow="ALWAYS"/>
+                    <TextField fx:id="passwordVisible" styleClass="text-input" HBox.hgrow="ALWAYS" visible="false" managed="false"/>
+                    <Button fx:id="togglePasswordBtn" text="Show" styleClass="btn-ghost"
+                            onAction="#handleTogglePassword" prefWidth="60"/>
+                </HBox>
+                <!-- Strength -->
+                <HBox fx:id="strengthRow" spacing="10" alignment="CENTER_LEFT">
+                    <Region fx:id="strengthBar" minHeight="6" prefHeight="6"
+                            styleClass="strength-bar" minWidth="60"/>
+                    <Label fx:id="strengthLabel" styleClass="strength-text"/>
+                </HBox>
+            </VBox>
+
+            <!-- Password Generator -->
+            <VBox styleClass="generator-box" spacing="10">
+                <padding><Insets top="12" right="14" bottom="12" left="14"/></padding>
+                <Label text="Password Generator" styleClass="generator-title"/>
+                <HBox alignment="CENTER_LEFT" spacing="10">
+                    <Label text="Length:" styleClass="field-label"/>
+                    <Slider fx:id="lengthSlider" min="8" max="64" value="20"
+                            majorTickUnit="8" snapToTicks="false" HBox.hgrow="ALWAYS"/>
+                    <Label fx:id="lengthLabel" text="20" styleClass="field-label" prefWidth="28"/>
+                </HBox>
+                <HBox spacing="16" wrap="true">
+                    <CheckBox fx:id="uppercaseCheck" text="A–Z" selected="true" styleClass="gen-check"/>
+                    <CheckBox fx:id="lowercaseCheck" text="a–z" selected="true" styleClass="gen-check"/>
+                    <CheckBox fx:id="digitsCheck" text="0–9" selected="true" styleClass="gen-check"/>
+                    <CheckBox fx:id="specialCheck" text="!@#$" selected="true" styleClass="gen-check"/>
+                </HBox>
+                <Button fx:id="generateBtn" text="Generate Password" styleClass="btn-secondary"
+                        onAction="#handleGenerate"/>
+            </VBox>
+
+            <!-- URL -->
+            <VBox spacing="6">
+                <Label text="Website URL" styleClass="field-label"/>
+                <TextField fx:id="urlField" styleClass="text-input" promptText="https://example.com"/>
+            </VBox>
+
+            <!-- Category -->
+            <VBox spacing="6">
+                <Label text="Category" styleClass="field-label"/>
+                <ComboBox fx:id="categoryCombo" styleClass="combo-box" maxWidth="Infinity"/>
+            </VBox>
+
+            <!-- Favorite -->
+            <CheckBox fx:id="favoriteCheck" text="Add to Favorites" styleClass="gen-check"/>
+
+            <!-- Notes -->
+            <VBox spacing="6">
+                <Label text="Notes (encrypted)" styleClass="field-label"/>
+                <TextArea fx:id="notesArea" styleClass="text-area" prefRowCount="3"
+                          promptText="Optional notes..."/>
+            </VBox>
+
+            <!-- Error -->
+            <Label fx:id="errorLabel" styleClass="error-label" wrapText="true"/>
+        </VBox>
+    </ScrollPane>
+
+    <!-- Footer buttons -->
+    <HBox styleClass="dialog-footer" spacing="10" alignment="CENTER_RIGHT">
+        <padding><Insets top="16" right="24" bottom="20" left="24"/></padding>
+        <Button fx:id="cancelBtn" text="Cancel" styleClass="btn-ghost" onAction="#handleCancel"/>
+        <Button fx:id="saveBtn" text="Save Entry" styleClass="btn-primary" onAction="#handleSave"/>
+    </HBox>
+</VBox>
