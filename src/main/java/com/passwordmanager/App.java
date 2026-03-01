@@ -37,6 +37,7 @@ public class App extends Application {
         applyTheme(scene);
 
         stage.setTitle("Vault — Password Manager");
+        stage.setResizable(true);
         stage.setMinWidth(480);
         stage.setMinHeight(520);
         stage.setScene(scene);

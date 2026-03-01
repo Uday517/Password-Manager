@@ -52,12 +52,12 @@
                             majorTickUnit="8" snapToTicks="false" HBox.hgrow="ALWAYS"/>
                     <Label fx:id="lengthLabel" text="20" styleClass="field-label" prefWidth="28"/>
                 </HBox>
-                <HBox spacing="16" wrap="true">
+                <FlowPane hgap="16" vgap="8">
                     <CheckBox fx:id="uppercaseCheck" text="A–Z" selected="true" styleClass="gen-check"/>
                     <CheckBox fx:id="lowercaseCheck" text="a–z" selected="true" styleClass="gen-check"/>
                     <CheckBox fx:id="digitsCheck" text="0–9" selected="true" styleClass="gen-check"/>
                     <CheckBox fx:id="specialCheck" text="!@#$" selected="true" styleClass="gen-check"/>
-                </HBox>
+                </FlowPane>
                 <Button fx:id="generateBtn" text="Generate Password" styleClass="btn-secondary"
                         onAction="#handleGenerate"/>
             </VBox>
