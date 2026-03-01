@@ -150,11 +150,11 @@ jobs:
           cache: maven
 
       - name: Build JAR
-        run: mvn -B package -P mac-aarch64 --no-transfer-progress -DskipTests
+        run: mvn -B package -P mac-aarch64,!mac --no-transfer-progress -DskipTests
 
       - name: Copy runtime dependencies to app dir
         run: |
-          mvn -B dependency:copy-dependencies -P mac-aarch64 \
+          mvn -B dependency:copy-dependencies -P mac-aarch64,!mac \
             --no-transfer-progress \
             -DoutputDirectory=target/app \
             -Dmdep.useRepositoryLayout=false \
