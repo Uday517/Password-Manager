@@ -18,6 +18,7 @@ import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -47,6 +48,7 @@ public class VaultController {
 
     // Entry detail panel
     @FXML private StackPane detailPane;
+    @FXML private ScrollPane detailScrollPane;
     @FXML private VBox detailContent;
     @FXML private VBox noSelectionPane;
     @FXML private Label detailTitle;
@@ -197,11 +199,13 @@ public class VaultController {
             notesRow.setVisible(false);
         }
 
+        detailScrollPane.setVisible(true);
         detailContent.setVisible(true);
         noSelectionPane.setVisible(false);
     }
 
     private void hideDetail() {
+        detailScrollPane.setVisible(false);
         detailContent.setVisible(false);
         noSelectionPane.setVisible(true);
     }

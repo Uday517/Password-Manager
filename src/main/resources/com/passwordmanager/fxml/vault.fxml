@@ -68,8 +68,8 @@
         </VBox>
 
         <!-- Entry detail content -->
-        <ScrollPane fitToWidth="true" styleClass="detail-scroll" visible="false">
-            <VBox fx:id="detailContent" spacing="0" visible="false">
+        <ScrollPane fx:id="detailScrollPane" fitToWidth="true" styleClass="detail-scroll" visible="false">
+            <VBox fx:id="detailContent" spacing="0">
                 <padding><Insets top="32" right="32" bottom="32" left="32"/></padding>
 
                 <!-- Title + favorite -->
