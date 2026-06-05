@@ -2,6 +2,7 @@ target/
 *.class
 *.jar
 *.log
+*.db
 .DS_Store
 *.iml
 .idea/
