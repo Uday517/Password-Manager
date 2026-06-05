@@ -134,6 +134,7 @@
             <activation>
                 <os>
                     <family>mac</family>
+                    <arch>x86_64</arch>
                 </os>
             </activation>
             <dependencies>
@@ -166,6 +167,12 @@
 
         <profile>
             <id>mac-aarch64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
             <dependencies>
                 <dependency>
                     <groupId>org.openjfx</groupId>

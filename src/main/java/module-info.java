@@ -4,7 +4,7 @@ module com.passwordmanager {
     requires java.sql;
     requires org.xerial.sqlitejdbc;
 
-    opens com.passwordmanager to javafx.fxml;
+    opens com.passwordmanager to javafx.fxml, javafx.graphics;
     opens com.passwordmanager.controllers to javafx.fxml;
     opens com.passwordmanager.models to javafx.base;
 }
