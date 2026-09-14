@@ -28,6 +28,7 @@
 
         <!-- Session info -->
         <VBox spacing="8" style="-fx-padding: 16 16 8 16;">
+            <Label fx:id="usernameLabel" text="—" styleClass="sidebar-username"/>
             <Label fx:id="sessionTimerLabel" text="⏱ 15:00" styleClass="session-timer"/>
             <Button fx:id="lockBtn" text="🔒  Lock Vault" styleClass="btn-lock"
                     maxWidth="Infinity" onAction="#handleLock"/>
@@ -121,7 +122,7 @@
                     <HBox fx:id="notesRow" spacing="4" visible="false">
                         <VBox spacing="4" HBox.hgrow="ALWAYS">
                             <Label text="NOTES" styleClass="detail-field-label"/>
-                            <Label fx:id="detailNotes" styleClass="detail-field-value" wrapText="true"/>
+                            <Label fx:id="detailNotes" styleClass="detail-field-value" wrapText="true" onMouseClicked="#handleRevealNotes"/>
                         </VBox>
                     </HBox>
 

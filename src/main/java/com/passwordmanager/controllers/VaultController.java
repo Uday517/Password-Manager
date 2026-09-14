@@ -1,14 +1,11 @@
 package com.passwordmanager.controllers;
 
 import com.passwordmanager.App;
-import com.passwordmanager.models.EncryptedData;
-import com.passwordmanager.models.GeneratorOptions;
 import com.passwordmanager.models.VaultEntry;
-import com.passwordmanager.services.CryptoService;
 import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
+import com.passwordmanager.services.VaultService;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
@@ -25,12 +22,14 @@ import javafx.scene.layout.VBox;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class VaultController {
+
+    private static final Logger LOG = Logger.getLogger(VaultController.class.getName());
 
     // Sidebar
     @FXML private Label usernameLabel;
@@ -71,20 +70,24 @@ public class VaultController {
     private VaultEntry selectedEntry;
     private Timer sessionCountdownTimer;
     private Timer revealTimer;
+    private Timer clipboardTimer;
+    private boolean notesRevealed;
     private final long SESSION_TIMEOUT_MS = 15L * 60 * 1000;
     private long sessionStartMs;
 
     @FXML
     public void initialize() {
-        sessionStartMs = System.currentTimeMillis();
+        resetSessionClock();
 
-        // Set username in sidebar
+        // Sidebar username. The previous version of this looked up the user named
+        // "" , discarded the result, and never touched the label.
         try {
-            var db = DatabaseService.getInstance();
             String uid = SessionService.getInstance().getUserId();
-            db.findUserByUsername(db.findUserByUsername("") // placeholder approach
-              .map(u -> u.username()).orElse(""));
-        } catch (Exception ignored) {}
+            DatabaseService.getInstance().findUserById(uid)
+                .ifPresent(u -> usernameLabel.setText(u.username()));
+        } catch (Exception e) {
+            LOG.warning("Could not load username for sidebar: " + e.getMessage());
+        }
 
         setupCategoryList();
         setupEntryList();
@@ -165,19 +168,23 @@ public class VaultController {
         Thread.ofVirtual().start(() -> {
             try {
                 String userId = SessionService.getInstance().getUserId();
-                List<VaultEntry> entries = DatabaseService.getInstance().getEntriesForUser(userId);
+                byte[] key = SessionService.getInstance().getVaultKey();
+                // Metadata is encrypted at rest, so the list has to be decrypted
+                // before it can be shown, searched or filtered.
+                List<VaultEntry> entries = VaultService.getInstance().listEntries(userId, key);
                 Platform.runLater(() -> {
                     allEntries.setAll(entries);
-                    emptyStateLabel.setVisible(entries.isEmpty());
+                    applyFilters();
                 });
             } catch (Exception e) {
-                Platform.runLater(() -> showAlert("Error", "Failed to load entries: " + e.getMessage()));
+                LOG.log(Level.WARNING, "Failed to load entries", e);
+                Platform.runLater(() -> showAlert("Error", "Failed to load entries."));
             }
         });
     }
 
     private void showDetail(VaultEntry entry) {
-        SessionService.getInstance().refresh();
+        touchSession();
         cancelRevealTimer();
 
         detailTitle.setText(entry.title());
@@ -192,6 +199,7 @@ public class VaultController {
 
         favoriteBtn.setText(entry.isFavorite() ? "★ Unfavorite" : "☆ Favorite");
 
+        notesRevealed = false;
         if (entry.hasNotes()) {
             notesRow.setVisible(true);
             detailNotes.setText("••• (click to reveal)");
@@ -213,7 +221,7 @@ public class VaultController {
     @FXML
     private void handleRevealPassword() {
         if (selectedEntry == null) return;
-        SessionService.getInstance().refresh();
+        touchSession();
 
         if (detailPasswordRevealed.isVisible()) {
             // Re-hide
@@ -225,13 +233,16 @@ public class VaultController {
             return;
         }
 
+        final VaultEntry entry = selectedEntry;
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData data = new EncryptedData(selectedEntry.passwordIv(), selectedEntry.passwordCipher());
-                String decrypted = CryptoService.getInstance().decrypt(data, key);
+                String decrypted = VaultService.getInstance()
+                    .reveal(entry.passwordIv(), entry.passwordCipher(), key);
 
                 Platform.runLater(() -> {
+                    // The selection may have moved while we were decrypting.
+                    if (selectedEntry != entry) return;
                     detailPasswordRevealed.setText(decrypted);
                     detailPasswordRevealed.setVisible(true);
                     detailPasswordMasked.setVisible(false);
@@ -241,7 +252,32 @@ public class VaultController {
                     scheduleRevealHide(30_000);
                 });
             } catch (Exception e) {
+                LOG.log(Level.WARNING, "Decrypt failed", e);
                 Platform.runLater(() -> showAlert("Error", "Could not decrypt password."));
+            }
+        });
+    }
+
+    /** Reveal the decrypted notes in place. The label advertised this; nothing implemented it. */
+    @FXML
+    private void handleRevealNotes() {
+        if (selectedEntry == null || !selectedEntry.hasNotes() || notesRevealed) return;
+        touchSession();
+
+        final VaultEntry entry = selectedEntry;
+        Thread.ofVirtual().start(() -> {
+            try {
+                byte[] key = SessionService.getInstance().getVaultKey();
+                String notes = VaultService.getInstance()
+                    .reveal(entry.notesIv(), entry.notesCipher(), key);
+                Platform.runLater(() -> {
+                    if (selectedEntry != entry) return;
+                    detailNotes.setText(notes);
+                    notesRevealed = true;
+                });
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Notes decrypt failed", e);
+                Platform.runLater(() -> showAlert("Error", "Could not decrypt notes."));
             }
         });
     }
@@ -249,13 +285,14 @@ public class VaultController {
     @FXML
     private void handleCopyPassword() {
         if (selectedEntry == null) return;
-        SessionService.getInstance().refresh();
+        touchSession();
 
+        final VaultEntry entry = selectedEntry;
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData data = new EncryptedData(selectedEntry.passwordIv(), selectedEntry.passwordCipher());
-                String decrypted = CryptoService.getInstance().decrypt(data, key);
+                String decrypted = VaultService.getInstance()
+                    .reveal(entry.passwordIv(), entry.passwordCipher(), key);
 
                 Platform.runLater(() -> {
                     ClipboardContent content = new ClipboardContent();
@@ -263,25 +300,40 @@ public class VaultController {
                     Clipboard.getSystemClipboard().setContent(content);
                     copyPasswordBtn.setText("Copied!");
 
-                    // Clear clipboard after 60 seconds
-                    new Timer("clipboard-clear", true).schedule(new TimerTask() {
+                    cancelClipboardTimer();
+                    clipboardTimer = new Timer("clipboard-clear", true);
+                    clipboardTimer.schedule(new TimerTask() {
                         @Override public void run() {
                             Platform.runLater(() -> {
-                                Clipboard.getSystemClipboard().setContent(new ClipboardContent());
+                                // Only clear if OUR password is still on the clipboard.
+                                // Clearing unconditionally destroyed whatever the user
+                                // had copied in the intervening minute.
+                                Clipboard cb = Clipboard.getSystemClipboard();
+                                if (decrypted.equals(cb.getString())) {
+                                    cb.setContent(new ClipboardContent());
+                                }
                                 copyPasswordBtn.setText("Copy");
                             });
                         }
                     }, 60_000);
                 });
             } catch (Exception e) {
+                LOG.log(Level.WARNING, "Copy failed", e);
                 Platform.runLater(() -> showAlert("Error", "Could not copy password."));
             }
         });
     }
 
+    private void cancelClipboardTimer() {
+        if (clipboardTimer != null) {
+            clipboardTimer.cancel();
+            clipboardTimer = null;
+        }
+    }
+
     @FXML
     private void handleAddEntry() {
-        SessionService.getInstance().refresh();
+        touchSession();
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/com/passwordmanager/fxml/add_edit_entry.fxml"));
             Parent root = loader.load();
@@ -306,7 +358,7 @@ public class VaultController {
     @FXML
     private void handleEditEntry() {
         if (selectedEntry == null) return;
-        SessionService.getInstance().refresh();
+        touchSession();
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/com/passwordmanager/fxml/add_edit_entry.fxml"));
             Parent root = loader.load();
@@ -334,7 +386,7 @@ public class VaultController {
     @FXML
     private void handleDeleteEntry() {
         if (selectedEntry == null) return;
-        SessionService.getInstance().refresh();
+        touchSession();
 
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
             "Delete \"" + selectedEntry.title() + "\"? This cannot be undone.",
@@ -364,7 +416,7 @@ public class VaultController {
     @FXML
     private void handleToggleFavorite() {
         if (selectedEntry == null) return;
-        SessionService.getInstance().refresh();
+        touchSession();
 
         boolean newFav = !selectedEntry.isFavorite();
         Thread.ofVirtual().start(() -> {
@@ -388,6 +440,24 @@ public class VaultController {
 
     // ─── Session Timer ────────────────────────────────────────────────────────
 
+    /**
+     * Restart the displayed countdown.
+     *
+     * The clock previously ran from login and was never reset, while
+     * SessionService's real idle timer restarted on every interaction — so the
+     * display drifted out of step and eventually sat at 0:00 on a live session.
+     * Every call site that refreshes the session now refreshes this too.
+     */
+    private void resetSessionClock() {
+        sessionStartMs = System.currentTimeMillis();
+    }
+
+    /** Refresh the idle timeout and the clock that displays it, together. */
+    private void touchSession() {
+        touchSession();
+        resetSessionClock();
+    }
+
     private void startSessionTimer() {
         sessionCountdownTimer = new Timer("session-countdown", true);
         sessionCountdownTimer.scheduleAtFixedRate(new TimerTask() {
@@ -396,7 +466,7 @@ public class VaultController {
                 long elapsed = System.currentTimeMillis() - sessionStartMs;
                 long remaining = SESSION_TIMEOUT_MS - elapsed;
                 if (remaining <= 0) {
-                    cancel();
+                    Platform.runLater(() -> sessionTimerLabel.setText("⏱ 0:00"));
                     return;
                 }
                 long mins = remaining / 60000;

@@ -376,6 +376,12 @@
     -fx-font-weight: bold;
 }
 
+.sidebar-username {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
 .session-timer {
     -fx-font-size: 13px;
     -fx-text-fill: -text-secondary;

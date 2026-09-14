@@ -1,5 +1,6 @@
 package com.passwordmanager.services;
 
+import com.passwordmanager.models.EncryptedEntry;
 import com.passwordmanager.models.User;
 import com.passwordmanager.models.VaultEntry;
 import com.passwordmanager.utils.AppPaths;
@@ -47,19 +48,24 @@ public class DatabaseService {
 
     public void initialize() throws Exception {
         Path dbPath = AppPaths.getDatabasePath();
-        Files.createDirectories(dbPath.getParent());
+        Path dataDir = dbPath.getParent();
+        Files.createDirectories(dataDir);
+
+        // Lock the *directory* down to 0700 before opening the connection.
+        //
+        // Chmodding only the .db file left two holes: the file existed at the
+        // default umask for the moment between DriverManager.getConnection()
+        // creating it and the chmod landing, and WAL mode's vault.db-wal /
+        // vault.db-shm sidecars were never chmodded at all. An unreadable parent
+        // directory closes both, whatever SQLite creates inside it.
+        setOwnerOnly(dataDir, "rwx------");
 
         String url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
         conn = DriverManager.getConnection(url);
 
-        // Set restrictive file permissions on POSIX systems (Linux/macOS)
-        try {
-            File dbFile = dbPath.toFile();
-            if (dbFile.exists()) {
-                Files.setPosixFilePermissions(dbPath, PosixFilePermissions.fromString("rw-------"));
-            }
-        } catch (UnsupportedOperationException e) {
-            // Windows does not support POSIX permissions — skip
+        // Belt and braces: the file itself, once it exists.
+        if (Files.exists(dbPath)) {
+            setOwnerOnly(dbPath, "rw-------");
         }
 
         // Performance and safety pragmas
@@ -67,10 +73,66 @@ public class DatabaseService {
             st.execute("PRAGMA journal_mode=WAL");
             st.execute("PRAGMA foreign_keys=ON");
             st.execute("PRAGMA synchronous=NORMAL");
+            // Overwrite deleted content with zeros instead of just marking the page
+            // free. Without this, a deleted entry's ciphertext — and anything that
+            // was ever stored in the clear — stays readable in the file with a hex
+            // editor long after the row is gone.
+            st.execute("PRAGMA secure_delete=ON");
         }
 
         runMigrations();
         LOG.info("Database initialized at: " + dbPath);
+    }
+
+    /** Best-effort POSIX permission tightening; a no-op on Windows. */
+    private void setOwnerOnly(Path path, String perms) {
+        try {
+            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(perms));
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            // Windows (no POSIX view) or a filesystem that refuses — not fatal.
+            LOG.fine("Could not set permissions on " + path + ": " + e.getMessage());
+        }
+    }
+
+    /** Runs {@code work} inside a transaction, rolling back on any exception. */
+    public void inTransaction(SqlWork work) throws Exception {
+        boolean previous = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+        try {
+            work.run();
+            conn.commit();
+        } catch (Exception e) {
+            try {
+                conn.rollback();
+            } catch (SQLException rollbackFailure) {
+                LOG.severe("Rollback failed: " + rollbackFailure.getMessage());
+            }
+            throw e;
+        } finally {
+            conn.setAutoCommit(previous);
+        }
+    }
+
+    @FunctionalInterface
+    public interface SqlWork {
+        void run() throws Exception;
+    }
+
+    /**
+     * Rebuild the database file, discarding free pages.
+     *
+     * {@code secure_delete} only governs pages freed after it was set, so it cannot
+     * scrub residue that predates it. After the v1 to v2 migration the metadata
+     * columns are NULL but their former contents are still sitting in free pages —
+     * VACUUM writes a fresh file from the live rows only, which is what actually
+     * removes them. Must run outside a transaction.
+     */
+    public void vacuum() throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+            st.execute("VACUUM");
+        }
+        LOG.info("Database vacuumed");
     }
 
     public void close() {
@@ -147,11 +209,14 @@ public class DatabaseService {
 
     // ─── Vault Entries ────────────────────────────────────────────────────────
 
-    public List<VaultEntry> getEntriesForUser(String userId) throws SQLException {
-        String sql = "SELECT id, user_id, title, entry_username, url, category, is_favorite, " +
-                     "password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at " +
-                     "FROM vault_entries WHERE user_id = ? ORDER BY updated_at DESC";
-        List<VaultEntry> entries = new ArrayList<>();
+    private static final String ENTRY_COLUMNS =
+        "id, user_id, is_favorite, meta_iv, meta_cipher, " +
+        "password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at";
+
+    public List<EncryptedEntry> getEntriesForUser(String userId) throws SQLException {
+        String sql = "SELECT " + ENTRY_COLUMNS +
+                     " FROM vault_entries WHERE user_id = ? ORDER BY updated_at DESC";
+        List<EncryptedEntry> entries = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
@@ -163,10 +228,9 @@ public class DatabaseService {
         return entries;
     }
 
-    public Optional<VaultEntry> getEntry(String entryId, String userId) throws SQLException {
-        String sql = "SELECT id, user_id, title, entry_username, url, category, is_favorite, " +
-                     "password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at " +
-                     "FROM vault_entries WHERE id = ? AND user_id = ?";
+    public Optional<EncryptedEntry> getEntry(String entryId, String userId) throws SQLException {
+        String sql = "SELECT " + ENTRY_COLUMNS +
+                     " FROM vault_entries WHERE id = ? AND user_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, entryId);
             ps.setString(2, userId);
@@ -177,49 +241,94 @@ public class DatabaseService {
         return Optional.empty();
     }
 
-    public void createEntry(VaultEntry entry) throws SQLException {
+    public void createEntry(EncryptedEntry entry) throws SQLException {
         String sql = "INSERT INTO vault_entries " +
-                     "(id, user_id, title, entry_username, url, category, is_favorite, " +
+                     "(id, user_id, is_favorite, meta_iv, meta_cipher, " +
                      " password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at) " +
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1,  entry.id());
             ps.setString(2,  entry.userId());
-            ps.setString(3,  entry.title());
-            ps.setString(4,  entry.entryUsername());
-            ps.setString(5,  entry.url());
-            ps.setString(6,  entry.category());
-            ps.setInt(7,     entry.isFavorite() ? 1 : 0);
-            ps.setString(8,  entry.passwordIv());
-            ps.setString(9,  entry.passwordCipher());
-            ps.setString(10, entry.notesIv());
-            ps.setString(11, entry.notesCipher());
-            ps.setString(12, now());
-            ps.setString(13, now());
+            ps.setInt(3,     entry.isFavorite() ? 1 : 0);
+            ps.setString(4,  entry.metaIv());
+            ps.setString(5,  entry.metaCipher());
+            ps.setString(6,  entry.passwordIv());
+            ps.setString(7,  entry.passwordCipher());
+            ps.setString(8,  entry.notesIv());
+            ps.setString(9,  entry.notesCipher());
+            ps.setString(10, now());
+            ps.setString(11, now());
             ps.executeUpdate();
         }
     }
 
-    public void updateEntry(String entryId, String userId, String title, String entryUsername,
-                            String url, String category, boolean isFavorite,
-                            String passwordIv, String passwordCipher,
-                            String notesIv, String notesCipher) throws SQLException {
-        String sql = "UPDATE vault_entries SET title=?, entry_username=?, url=?, category=?, " +
-                     "is_favorite=?, password_iv=?, password_cipher=?, notes_iv=?, notes_cipher=?, " +
-                     "updated_at=? WHERE id=? AND user_id=?";
+    public void updateEntry(EncryptedEntry entry) throws SQLException {
+        String sql = "UPDATE vault_entries SET is_favorite=?, meta_iv=?, meta_cipher=?, " +
+                     "password_iv=?, password_cipher=?, notes_iv=?, notes_cipher=?, updated_at=? " +
+                     "WHERE id=? AND user_id=?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1,  title);
-            ps.setString(2,  entryUsername);
-            ps.setString(3,  url);
-            ps.setString(4,  category);
-            ps.setInt(5,     isFavorite ? 1 : 0);
-            ps.setString(6,  passwordIv);
-            ps.setString(7,  passwordCipher);
-            ps.setString(8,  notesIv);
-            ps.setString(9,  notesCipher);
-            ps.setString(10, now());
-            ps.setString(11, entryId);
-            ps.setString(12, userId);
+            ps.setInt(1,    entry.isFavorite() ? 1 : 0);
+            ps.setString(2, entry.metaIv());
+            ps.setString(3, entry.metaCipher());
+            ps.setString(4, entry.passwordIv());
+            ps.setString(5, entry.passwordCipher());
+            ps.setString(6, entry.notesIv());
+            ps.setString(7, entry.notesCipher());
+            ps.setString(8, now());
+            ps.setString(9, entry.id());
+            ps.setString(10, entry.userId());
+            ps.executeUpdate();
+        }
+    }
+
+    // ─── Legacy rows (KDF v1 / plaintext metadata) ────────────────────────────
+
+    /** One un-migrated row: plaintext metadata plus the v1-encrypted secrets. */
+    public record LegacyEntryRow(String id, String title, String entryUsername, String url,
+                                 String category, String passwordIv, String passwordCipher,
+                                 String notesIv, String notesCipher) {}
+
+    /** Rows for this user that still have no encrypted metadata blob. */
+    public List<LegacyEntryRow> getLegacyEntries(String userId) throws SQLException {
+        String sql = "SELECT id, title, entry_username, url, category, password_iv, " +
+                     "password_cipher, notes_iv, notes_cipher FROM vault_entries " +
+                     "WHERE user_id = ? AND meta_cipher IS NULL";
+        List<LegacyEntryRow> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    rows.add(new LegacyEntryRow(
+                        rs.getString("id"), rs.getString("title"), rs.getString("entry_username"),
+                        rs.getString("url"), rs.getString("category"), rs.getString("password_iv"),
+                        rs.getString("password_cipher"), rs.getString("notes_iv"),
+                        rs.getString("notes_cipher")));
+                }
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Write a converted row: encrypted metadata in, plaintext metadata wiped out.
+     * Timestamps are deliberately left alone — a migration is not a user edit.
+     */
+    public void writeMigratedEntry(String entryId, String userId, String metaIv, String metaCipher,
+                                   String passwordIv, String passwordCipher,
+                                   String notesIv, String notesCipher) throws SQLException {
+        String sql = "UPDATE vault_entries SET meta_iv=?, meta_cipher=?, password_iv=?, " +
+                     "password_cipher=?, notes_iv=?, notes_cipher=?, " +
+                     "title=NULL, entry_username=NULL, url=NULL, category=NULL " +
+                     "WHERE id=? AND user_id=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, metaIv);
+            ps.setString(2, metaCipher);
+            ps.setString(3, passwordIv);
+            ps.setString(4, passwordCipher);
+            ps.setString(5, notesIv);
+            ps.setString(6, notesCipher);
+            ps.setString(7, entryId);
+            ps.setString(8, userId);
             ps.executeUpdate();
         }
     }
@@ -257,6 +366,7 @@ public class DatabaseService {
 
         int current = getCurrentSchemaVersion();
         if (current < 1) applyMigration1();
+        if (current < 2) applyMigration2();
     }
 
     private int getCurrentSchemaVersion() throws SQLException {
@@ -309,6 +419,131 @@ public class DatabaseService {
         }
     }
 
+    /**
+     * Schema v2 — encrypted metadata and the unified KDF.
+     *
+     * Adds the encrypted metadata blob columns and a per-user {@code kdf_version}.
+     * The old plaintext columns (title, entry_username, url, category) are left in
+     * place and nullable: rows still need them until each user logs in and their
+     * vault is re-encrypted, since only then is the master password available.
+     * {@link VaultMigrationService} clears them per user as it converts.
+     */
+    private void applyMigration2() throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            addColumnIfMissing(st, "users", "kdf_version", "INTEGER NOT NULL DEFAULT 1");
+            addColumnIfMissing(st, "vault_entries", "meta_iv", "TEXT");
+            addColumnIfMissing(st, "vault_entries", "meta_cipher", "TEXT");
+
+            // The plaintext metadata columns were NOT NULL in v1. SQLite cannot drop
+            // a NOT NULL constraint in place, and they must accept NULL once a row is
+            // migrated, so title is relaxed by rebuilding the table.
+            relaxPlaintextMetadataColumns(st);
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)")) {
+            ps.setString(1, now());
+            ps.executeUpdate();
+        }
+        LOG.info("Applied schema migration 2 (encrypted metadata + kdf_version)");
+    }
+
+    private void addColumnIfMissing(Statement st, String table, String column, String definition)
+            throws SQLException {
+        if (columnExists(table, column)) return;
+        st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+    }
+
+    private boolean columnExists(String table, String column) throws SQLException {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (rs.next()) {
+                if (column.equalsIgnoreCase(rs.getString("name"))) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Rebuild vault_entries so the legacy plaintext metadata columns are nullable. */
+    private void relaxPlaintextMetadataColumns(Statement st) throws SQLException {
+        boolean titleNotNull = false;
+        try (Statement probe = conn.createStatement();
+             ResultSet rs = probe.executeQuery("PRAGMA table_info(vault_entries)")) {
+            while (rs.next()) {
+                if ("title".equalsIgnoreCase(rs.getString("name"))) {
+                    titleNotNull = rs.getInt("notnull") == 1;
+                }
+            }
+        }
+        if (!titleNotNull) return;
+
+        st.execute("""
+            CREATE TABLE vault_entries_v2 (
+                id              TEXT PRIMARY KEY,
+                user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title           TEXT,
+                entry_username  TEXT,
+                url             TEXT,
+                category        TEXT,
+                is_favorite     INTEGER NOT NULL DEFAULT 0,
+                meta_iv         TEXT,
+                meta_cipher     TEXT,
+                password_iv     TEXT NOT NULL,
+                password_cipher TEXT NOT NULL,
+                notes_iv        TEXT,
+                notes_cipher    TEXT,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            )
+            """);
+        st.execute("""
+            INSERT INTO vault_entries_v2
+                (id, user_id, title, entry_username, url, category, is_favorite,
+                 meta_iv, meta_cipher, password_iv, password_cipher,
+                 notes_iv, notes_cipher, created_at, updated_at)
+            SELECT id, user_id, title, entry_username, url, category, is_favorite,
+                   meta_iv, meta_cipher, password_iv, password_cipher,
+                   notes_iv, notes_cipher, created_at, updated_at
+            FROM vault_entries
+            """);
+        st.execute("DROP TABLE vault_entries");
+        st.execute("ALTER TABLE vault_entries_v2 RENAME TO vault_entries");
+        st.execute("CREATE INDEX IF NOT EXISTS idx_entries_user ON vault_entries(user_id)");
+    }
+
+    // ─── KDF version ──────────────────────────────────────────────────────────
+
+    public int getKdfVersion(String userId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT kdf_version FROM users WHERE id = ?")) {
+            ps.setString(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 1;
+            }
+        }
+    }
+
+    public void setKdfVersion(String userId, int version) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE users SET kdf_version = ? WHERE id = ?")) {
+            ps.setInt(1, version);
+            ps.setString(2, userId);
+            ps.executeUpdate();
+        }
+    }
+
+    public Optional<User> findUserById(String userId) throws SQLException {
+        String sql = "SELECT id, username, password_hash, password_salt, created_at, " +
+                     "failed_attempts, locked_until FROM users WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return Optional.of(mapUser(rs));
+            }
+        }
+        return Optional.empty();
+    }
+
     // ─── Row Mappers ──────────────────────────────────────────────────────────
 
     private User mapUser(ResultSet rs) throws SQLException {
@@ -326,15 +561,13 @@ public class DatabaseService {
         );
     }
 
-    private VaultEntry mapEntry(ResultSet rs) throws SQLException {
-        return new VaultEntry(
+    private EncryptedEntry mapEntry(ResultSet rs) throws SQLException {
+        return new EncryptedEntry(
             rs.getString("id"),
             rs.getString("user_id"),
-            rs.getString("title"),
-            rs.getString("entry_username"),
-            rs.getString("url"),
-            rs.getString("category"),
             rs.getInt("is_favorite") == 1,
+            rs.getString("meta_iv"),
+            rs.getString("meta_cipher"),
             rs.getString("password_iv"),
             rs.getString("password_cipher"),
             rs.getString("notes_iv"),

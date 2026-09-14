@@ -1,20 +1,16 @@
 package com.passwordmanager.controllers;
 
-import com.passwordmanager.models.EncryptedData;
 import com.passwordmanager.models.GeneratorOptions;
 import com.passwordmanager.models.VaultEntry;
 import com.passwordmanager.services.CryptoService;
-import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
+import com.passwordmanager.services.VaultService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.stage.Stage;
-
-import java.time.LocalDateTime;
-import java.util.UUID;
 
 public class AddEditEntryController {
 
@@ -99,13 +95,12 @@ public class AddEditEntryController {
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData data = new EncryptedData(entry.passwordIv(), entry.passwordCipher());
-                String pwd = CryptoService.getInstance().decrypt(data, key);
+                VaultService vault = VaultService.getInstance();
+                String pwd = vault.reveal(entry.passwordIv(), entry.passwordCipher(), key);
                 Platform.runLater(() -> passwordField.setText(pwd));
 
                 if (entry.hasNotes()) {
-                    EncryptedData notesData = new EncryptedData(entry.notesIv(), entry.notesCipher());
-                    String notes = CryptoService.getInstance().decrypt(notesData, key);
+                    String notes = vault.reveal(entry.notesIv(), entry.notesCipher(), key);
                     Platform.runLater(() -> notesArea.setText(notes));
                 }
             } catch (Exception e) {
@@ -178,37 +173,19 @@ public class AddEditEntryController {
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData encPwd = CryptoService.getInstance().encrypt(password, key);
-
-                String notesIv = null, notesCipher = null;
-                if (!notes.isEmpty()) {
-                    EncryptedData encNotes = CryptoService.getInstance().encrypt(notes, key);
-                    notesIv = encNotes.iv();
-                    notesCipher = encNotes.ciphertext();
-                }
-
                 String userId = SessionService.getInstance().getUserId();
+                VaultService vault = VaultService.getInstance();
 
                 if (isEditing && editingEntry != null) {
-                    DatabaseService.getInstance().updateEntry(
-                        editingEntry.id(), userId, title,
+                    vault.updateEntry(editingEntry.id(), userId, key, title,
                         username.isEmpty() ? null : username,
                         url.isEmpty() ? null : url,
-                        category, favorite,
-                        encPwd.iv(), encPwd.ciphertext(),
-                        notesIv, notesCipher
-                    );
+                        category, favorite, password, notes);
                 } else {
-                    VaultEntry newEntry = new VaultEntry(
-                        UUID.randomUUID().toString(), userId,
-                        title, username.isEmpty() ? null : username,
+                    vault.createEntry(userId, key, title,
+                        username.isEmpty() ? null : username,
                         url.isEmpty() ? null : url,
-                        category, favorite,
-                        encPwd.iv(), encPwd.ciphertext(),
-                        notesIv, notesCipher,
-                        LocalDateTime.now(), LocalDateTime.now()
-                    );
-                    DatabaseService.getInstance().createEntry(newEntry);
+                        category, favorite, password, notes);
                 }
 
                 Platform.runLater(() -> {

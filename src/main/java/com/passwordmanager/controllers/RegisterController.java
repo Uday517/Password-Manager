@@ -4,6 +4,7 @@ import com.passwordmanager.App;
 import com.passwordmanager.services.CryptoService;
 import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
+import com.passwordmanager.services.VaultMigrationService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
@@ -123,9 +124,12 @@ public class RegisterController {
             // Derive vault key for the new session
             byte[] vaultKey = CryptoService.getInstance().deriveVaultKey(password, salt);
 
-            // Persist user
+            // Persist user. New accounts are born at the current KDF version, so
+            // migrateIfNeeded never touches them.
             String userId = UUID.randomUUID().toString();
             DatabaseService.getInstance().createUser(userId, username, hash, salt);
+            DatabaseService.getInstance().setKdfVersion(
+                userId, VaultMigrationService.CURRENT_KDF_VERSION);
 
             // Create session and go to vault
             SessionService.getInstance().create(userId, vaultKey, App::showLogin);

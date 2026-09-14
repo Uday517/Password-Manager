@@ -11,18 +11,32 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 
 /**
  * All cryptographic operations for the password manager.
  *
  * Security design:
- * - Master password: PBKDF2-SHA512 with 600,000 iterations + random 32-byte salt
- * - Vault key: derived from master password via a secondary PBKDF2 pass (domain-separated)
- * - Entry encryption: AES-256-GCM with random 12-byte IV per entry
+ * - One PBKDF2-SHA512 pass at 600,000 iterations produces 64 bytes of key material
+ *   from the master password and a random 32-byte salt. Bytes 0-31 are the auth
+ *   hash stored in the DB; bytes 32-63 are the AES-256 vault key, which never
+ *   leaves memory. Both therefore cost the full 600k to attack.
+ * - Entry encryption: AES-256-GCM with random 12-byte IV per field
  * - Password generation: SecureRandom with rejection sampling (no modulo bias)
  * - Timing-safe comparison: MessageDigest.isEqual for hash verification
+ *
+ * Why a split rather than two derivations: PBKDF2 emits T1||T2||..., so the first
+ * 32 bytes of a 64-byte derivation are bit-identical to a 32-byte derivation with
+ * the same inputs. Auth hashes written by KDF v1 stay valid untouched, and login
+ * does one PBKDF2 pass instead of two.
+ *
+ * KDF v1 (legacy) derived the vault key in a *separate* 100k pass, so an attacker
+ * holding the DB could ignore the 600k auth hash and brute-force the vault key at
+ * 100k instead, using the GCM tag as a correctness oracle. deriveVaultKeyV1 exists
+ * only so existing vaults can be read once and re-encrypted under v2.
  *
  * NOTHING in this class touches the database or filesystem.
  */
@@ -36,6 +50,7 @@ public class CryptoService {
     private static final int HASH_LENGTH_BYTES = 32;   // 256-bit hash
     private static final int VAULT_KEY_BYTES = 32;     // 256-bit AES key
     private static final int SALT_LENGTH_BYTES = 32;   // 256-bit salt
+    private static final int KEY_MATERIAL_BYTES = HASH_LENGTH_BYTES + VAULT_KEY_BYTES;
 
     // AES-GCM parameters
     private static final String AES_ALGO = "AES/GCM/NoPadding";
@@ -59,6 +74,15 @@ public class CryptoService {
     // ─── Master Password ──────────────────────────────────────────────────────
 
     /**
+     * Derive the full 64 bytes of key material for a master password.
+     * The caller must zero the returned array.
+     */
+    private byte[] deriveKeyMaterial(char[] password, String saltB64) throws Exception {
+        byte[] salt = Base64.getDecoder().decode(saltB64);
+        return pbkdf2(password, salt, PBKDF2_ITERATIONS, KEY_MATERIAL_BYTES);
+    }
+
+    /**
      * Hash a master password for storage. Generates a fresh random salt.
      *
      * @param password the master password as char[] (will NOT be cleared by this method)
@@ -74,6 +98,40 @@ public class CryptoService {
     }
 
     /**
+     * Verify the master password and derive the vault key in a single PBKDF2 pass.
+     *
+     * @return the 32-byte vault key if the password is correct, or null if it is not.
+     *         The caller owns the returned array and must zero it.
+     */
+    public byte[] verifyAndDeriveVaultKey(char[] password, String storedSaltB64, String storedHashB64)
+            throws Exception {
+        byte[] material = deriveKeyMaterial(password, storedSaltB64);
+        try {
+            byte[] authHalf = Arrays.copyOfRange(material, 0, HASH_LENGTH_BYTES);
+            byte[] stored = Base64.getDecoder().decode(storedHashB64);
+            boolean ok = MessageDigest.isEqual(authHalf, stored);  // timing-safe
+            Arrays.fill(authHalf, (byte) 0);
+            if (!ok) return null;
+            return Arrays.copyOfRange(material, HASH_LENGTH_BYTES, KEY_MATERIAL_BYTES);
+        } finally {
+            Arrays.fill(material, (byte) 0);
+        }
+    }
+
+    /**
+     * Derive only the v2 vault key (bytes 32-63). Used at registration, where the
+     * password has just been hashed and no verification is needed.
+     */
+    public byte[] deriveVaultKey(char[] password, String storedSaltB64) throws Exception {
+        byte[] material = deriveKeyMaterial(password, storedSaltB64);
+        try {
+            return Arrays.copyOfRange(material, HASH_LENGTH_BYTES, KEY_MATERIAL_BYTES);
+        } finally {
+            Arrays.fill(material, (byte) 0);
+        }
+    }
+
+    /**
      * Verify a master password against its stored salt and hash.
      * Uses timing-safe comparison to prevent timing attacks.
      */
@@ -85,19 +143,23 @@ public class CryptoService {
         return MessageDigest.isEqual(candidate, stored);  // timing-safe
     }
 
-    // ─── Vault Key Derivation ─────────────────────────────────────────────────
+    // ─── Legacy (KDF v1) Vault Key ────────────────────────────────────────────
 
     /**
-     * Derive the 256-bit vault encryption key from the master password.
+     * Derive the KDF v1 vault key: a separate 100,000-iteration PBKDF2 pass over a
+     * domain-separated salt.
      *
-     * Uses a second PBKDF2 pass with domain-separated salt (storedSalt || VAULT_KEY_INFO)
-     * so the auth hash and the encryption key are always different even with the same password.
+     * DEPRECATED AND INSECURE relative to v2 — 100k is well under the 600k the auth
+     * hash costs, so this was the cheapest path to the plaintext for anyone holding
+     * the database file. Retained solely so {@code VaultMigrationService} can read a
+     * v1 vault once in order to re-encrypt it under v2. Do not call it anywhere else.
      *
      * @param password master password as char[]
      * @param storedSaltB64 the base64 salt from the users table
      * @return 32-byte AES key (caller is responsible for zeroing after use)
      */
-    public byte[] deriveVaultKey(char[] password, String storedSaltB64) throws Exception {
+    @Deprecated
+    public byte[] deriveVaultKeyV1(char[] password, String storedSaltB64) throws Exception {
         byte[] salt = Base64.getDecoder().decode(storedSaltB64);
 
         // Domain-separate: salt_for_vault_key = salt || VAULT_KEY_INFO
@@ -201,20 +263,25 @@ public class CryptoService {
             // else: discard and retry — this is rejection sampling, eliminates bias
         }
 
-        // Guarantee at least one character from each required character class
-        if (opts.length() >= 4) {
-            int pos = 0;
-            if (opts.useUppercase() && !containsFrom(password, uppercase)) {
-                password[pos++] = randomFromSet(uppercase);
-            }
-            if (opts.useLowercase() && !containsFrom(password, lowercase)) {
-                password[pos++] = randomFromSet(lowercase);
-            }
-            if (opts.useDigits() && !containsFrom(password, digits)) {
-                password[pos++] = randomFromSet(digits);
-            }
-            if (opts.useSpecial() && !containsFrom(password, special)) {
-                password[pos] = randomFromSet(special);
+        // Guarantee at least one character from each requested class.
+        //
+        // The naive version of this writes forced characters at positions 0,1,2...
+        // which can overwrite the sole representative of a class that was already
+        // satisfied — so "fixing" a missing digit silently removes the only
+        // uppercase. Instead, collect the missing classes, then place them only on
+        // positions holding a character from an over-represented class.
+        List<String> required = new ArrayList<>(4);
+        if (opts.useUppercase()) required.add(uppercase);
+        if (opts.useLowercase()) required.add(lowercase);
+        if (opts.useDigits())    required.add(digits);
+        if (opts.useSpecial())   required.add(special);
+
+        if (opts.length() >= required.size() && !required.isEmpty()) {
+            for (String set : required) {
+                if (containsFrom(password, set)) continue;
+                int victim = findSpareposition(password, required);
+                if (victim < 0) break;  // cannot satisfy without breaking another class
+                password[victim] = randomFromSet(set);
             }
             // Shuffle to distribute the forced characters randomly
             shuffle(password);
@@ -272,6 +339,27 @@ public class CryptoService {
         return false;
     }
 
+    /**
+     * Find an index whose character belongs to a class that has at least one other
+     * representative, so overwriting it cannot drop that class from the password.
+     * Returns -1 when every position is the last of its class.
+     */
+    private int findSpareposition(char[] password, List<String> required) {
+        for (int i = 0; i < password.length; i++) {
+            String owner = null;
+            for (String set : required) {
+                if (set.indexOf(password[i]) >= 0) { owner = set; break; }
+            }
+            if (owner == null) return i;  // belongs to no required class — free to take
+            int count = 0;
+            for (char c : password) {
+                if (owner.indexOf(c) >= 0) count++;
+            }
+            if (count > 1) return i;
+        }
+        return -1;
+    }
+
     private char randomFromSet(String set) {
         int maxUnbiased = (256 / set.length()) * set.length();
         byte[] buf = new byte[1];
@@ -282,16 +370,19 @@ public class CryptoService {
         }
     }
 
+    /**
+     * Fisher-Yates using SecureRandom.nextInt(bound), which does its own rejection
+     * sampling over the full int range.
+     *
+     * The previous implementation drew a single byte and computed
+     * {@code maxUnbiased = (256 / (i + 1)) * (i + 1)}. For any array longer than 256
+     * that expression is 0, so the {@code while (j >= 0)} rejection loop never
+     * terminated — a hang on the calling thread. Unreachable through the UI (the
+     * length slider caps at 64) but a live trap for any other caller.
+     */
     private void shuffle(char[] array) {
         for (int i = array.length - 1; i > 0; i--) {
-            byte[] buf = new byte[1];
-            int j;
-            int maxUnbiased = (256 / (i + 1)) * (i + 1);
-            do {
-                secureRandom.nextBytes(buf);
-                j = buf[0] & 0xFF;
-            } while (j >= maxUnbiased);
-            j = j % (i + 1);
+            int j = secureRandom.nextInt(i + 1);
             char tmp = array[i];
             array[i] = array[j];
             array[j] = tmp;

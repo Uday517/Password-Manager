@@ -5,6 +5,7 @@ import com.passwordmanager.models.User;
 import com.passwordmanager.services.CryptoService;
 import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
+import com.passwordmanager.services.VaultMigrationService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
@@ -14,9 +15,12 @@ import javafx.scene.layout.VBox;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class LoginController {
 
+    private static final Logger LOG = Logger.getLogger(LoginController.class.getName());
     private static final int MAX_ATTEMPTS = 5;
     private static final int LOCKOUT_MINUTES = 30;
 
@@ -86,12 +90,12 @@ public class LoginController {
                 return;
             }
 
-            // Verify password
-            boolean valid = CryptoService.getInstance().verifyMasterPassword(
+            // One PBKDF2 pass verifies the password and yields the vault key.
+            byte[] vaultKey = CryptoService.getInstance().verifyAndDeriveVaultKey(
                 password, user.passwordSalt(), user.passwordHash()
             );
 
-            if (!valid) {
+            if (vaultKey == null) {
                 int newAttempts = user.failedAttempts() + 1;
                 DatabaseService.getInstance().incrementFailedAttempts(user.id());
 
@@ -107,16 +111,28 @@ public class LoginController {
                 return;
             }
 
-            // Password correct — derive vault key and create session
-            DatabaseService.getInstance().resetFailedAttempts(user.id());
-            byte[] vaultKey = CryptoService.getInstance().deriveVaultKey(password, user.passwordSalt());
+            // Password correct.
+            try {
+                DatabaseService.getInstance().resetFailedAttempts(user.id());
 
-            SessionService.getInstance().create(user.id(), vaultKey, App::showLogin);
-            Arrays.fill(vaultKey, (byte) 0);  // zero our copy; SessionService keeps its own
+                // This is the only point at which the master password is available,
+                // so a v1 vault is converted here before the session opens. It runs
+                // in one transaction — on failure the vault stays v1 and readable.
+                boolean migrated = VaultMigrationService.migrateIfNeeded(
+                    user.id(), user.passwordSalt(), password, vaultKey);
+                if (migrated) {
+                    LOG.info("Vault upgraded to KDF v2 on login");
+                }
+
+                SessionService.getInstance().create(user.id(), vaultKey, App::showLogin);
+            } finally {
+                Arrays.fill(vaultKey, (byte) 0);  // zero our copy; SessionService keeps its own
+            }
 
             App.showVault();
 
         } catch (Exception e) {
+            LOG.log(Level.WARNING, "Login failed", e);
             showError("Login failed. Please try again.");
         }
     }

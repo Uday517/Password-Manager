@@ -7,3 +7,6 @@ target/
 *.iml
 .idea/
 *.tmp
+
+# local sandbox vault used by scripts/run-dev.sh --sandbox
+.sandbox-home/
