@@ -16,7 +16,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux
           - os: macos-latest
-            platform: mac
+            platform: mac-aarch64
           - os: windows-latest
             platform: win
 
@@ -34,7 +34,15 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        run: mvn -B package -P ${{ matrix.platform }} --no-transfer-progress -DskipTests
+        run: mvn -B verify -P ${{ matrix.platform }} --no-transfer-progress
+
+      - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco
+          retention-days: 7
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4

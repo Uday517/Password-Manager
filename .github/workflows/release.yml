@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get install -y fakeroot
 
       - name: Build JAR
-        run: mvn -B package -P linux --no-transfer-progress -DskipTests
+        run: mvn -B package -P linux --no-transfer-progress
 
       - name: Copy runtime dependencies to app dir
         run: |
@@ -96,7 +96,7 @@ jobs:
           cache: maven
 
       - name: Build JAR
-        run: mvn -B package -P mac --no-transfer-progress -DskipTests
+        run: mvn -B package -P mac --no-transfer-progress
 
       - name: Copy runtime dependencies to app dir
         run: |
@@ -150,7 +150,7 @@ jobs:
           cache: maven
 
       - name: Build JAR
-        run: mvn -B package -P mac-aarch64,!mac --no-transfer-progress -DskipTests
+        run: mvn -B package -P mac-aarch64,!mac --no-transfer-progress
 
       - name: Copy runtime dependencies to app dir
         run: |
@@ -204,7 +204,7 @@ jobs:
           cache: maven
 
       - name: Build JAR
-        run: mvn -B package -P win --no-transfer-progress -DskipTests
+        run: mvn -B package -P win --no-transfer-progress
         shell: cmd
 
       - name: Copy runtime dependencies to app dir
