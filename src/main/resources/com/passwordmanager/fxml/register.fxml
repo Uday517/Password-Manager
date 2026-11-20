@@ -34,7 +34,7 @@
                     <PasswordField fx:id="passwordField" styleClass="text-input"
                                   promptText="Choose a strong master password"/>
                     <!-- Strength meter -->
-                    <HBox fx:id="strengthRow" spacing="10" alignment="CENTER_LEFT">
+                    <HBox fx:id="strengthRow" spacing="10" alignment="CENTER_LEFT" managed="false">
                         <Region fx:id="strengthBar" minHeight="6" prefHeight="6"
                                 styleClass="strength-bar" minWidth="60"/>
                         <Label fx:id="strengthLabel" styleClass="strength-text"/>
@@ -56,7 +56,7 @@
                 </VBox>
 
                 <!-- Error -->
-                <Label fx:id="errorLabel" styleClass="error-label" wrapText="true"/>
+                <Label fx:id="errorLabel" styleClass="error-label" wrapText="true" managed="false"/>
 
                 <!-- Register button -->
                 <Button fx:id="registerBtn" text="Create Account" styleClass="btn-primary"

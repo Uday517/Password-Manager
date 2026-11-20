@@ -37,16 +37,13 @@
             </VBox>
 
             <!-- Error -->
-            <Label fx:id="errorLabel" styleClass="error-label" wrapText="true"/>
+            <Label fx:id="errorLabel" styleClass="error-label" wrapText="true" managed="false"/>
 
             <!-- Lockout box -->
-            <VBox fx:id="lockoutBox" styleClass="lockout-box" spacing="4">
+            <VBox fx:id="lockoutBox" styleClass="lockout-box" spacing="4" managed="false">
                 <Label text="⚠ Account Locked" styleClass="lockout-title"/>
                 <Label fx:id="lockoutLabel" styleClass="lockout-message" wrapText="true"/>
             </VBox>
-
-            <!-- Attempts -->
-            <Label fx:id="attemptsLabel" styleClass="warning-label" wrapText="true"/>
 
             <!-- Login button -->
             <Button fx:id="loginBtn" text="Unlock Vault" styleClass="btn-primary"

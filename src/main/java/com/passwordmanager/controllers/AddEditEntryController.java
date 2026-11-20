@@ -8,15 +8,29 @@ import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.scene.control.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.Slider;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.stage.Stage;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class AddEditEntryController {
+
+    private static final Logger LOG = Logger.getLogger(AddEditEntryController.class.getName());
+    private static final int MAX_NOTES_LENGTH = 10_000;
+    private static final int MAX_TITLE_LENGTH = 120;
 
     @FXML private Label titleLabel;
     @FXML private TextField titleField;
@@ -49,7 +63,7 @@ public class AddEditEntryController {
     private boolean isEditing;
     private VaultEntry editingEntry;
     private Runnable onSave;
-    private boolean passwordVisible2 = false;
+    private boolean passwordShown = false;
 
     @FXML
     public void initialize() {
@@ -57,28 +71,30 @@ public class AddEditEntryController {
         categoryCombo.getSelectionModel().select(0);
 
         errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
         strengthRow.setVisible(false);
+        strengthRow.setManaged(false);
 
-        // Sync visible/masked password fields
-        passwordField.textProperty().addListener((obs, o, n) -> {
-            if (!passwordVisible2) passwordVisible.setText(n);
-            updateStrengthMeter(n);
-        });
-        passwordVisible.textProperty().addListener((obs, o, n) -> {
-            if (passwordVisible2) passwordField.setText(n);
-        });
+        // One source of truth for the password value: the two controls are
+        // always mirrors of each other, only one is visible at a time.
+        passwordVisible.textProperty().bindBidirectional(passwordField.textProperty());
+        passwordVisible.textProperty().addListener((obs, oldVal, newVal) ->
+            updateStrengthMeter(newVal));
 
-        // Generator slider
         if (lengthSlider != null) {
-            lengthSlider.valueProperty().addListener((obs, o, n) ->
-                lengthLabel.setText(String.valueOf(n.intValue())));
+            lengthSlider.valueProperty().addListener((obs, oldVal, newVal) ->
+                lengthLabel.setText(String.valueOf(newVal.intValue())));
         }
 
+        cancelBtn.setCancelButton(true);
+        saveBtn.setDefaultButton(true);
         togglePasswordVisibility(false);
+        Platform.runLater(titleField::requestFocus);
     }
 
     public void initForAdd() {
         isEditing = false;
+        editingEntry = null;
         titleLabel.setText("Add Entry");
         saveBtn.setText("Save Entry");
     }
@@ -95,21 +111,27 @@ public class AddEditEntryController {
         categoryCombo.getSelectionModel().select(entry.category());
         favoriteCheck.setSelected(entry.isFavorite());
 
-        // Load existing encrypted password
+        // Load the existing encrypted values on a background thread.
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData data = new EncryptedData(entry.passwordIv(), entry.passwordCipher());
-                String pwd = CryptoService.getInstance().decrypt(data, key);
-                Platform.runLater(() -> passwordField.setText(pwd));
-
-                if (entry.hasNotes()) {
-                    EncryptedData notesData = new EncryptedData(entry.notesIv(), entry.notesCipher());
-                    String notes = CryptoService.getInstance().decrypt(notesData, key);
-                    Platform.runLater(() -> notesArea.setText(notes));
+                try {
+                    String pwd = CryptoService.getInstance()
+                        .decrypt(new EncryptedData(entry.passwordIv(), entry.passwordCipher()), key);
+                    String notes = entry.hasNotes()
+                        ? CryptoService.getInstance().decrypt(
+                            new EncryptedData(entry.notesIv(), entry.notesCipher()), key)
+                        : "";
+                    Platform.runLater(() -> {
+                        passwordVisible.setText(pwd);
+                        notesArea.setText(notes);
+                    });
+                } finally {
+                    Arrays.fill(key, (byte) 0);
                 }
             } catch (Exception e) {
-                Platform.runLater(() -> showError("Could not decrypt existing password."));
+                LOG.log(Level.WARNING, "Could not decrypt entry for editing", e);
+                Platform.runLater(() -> showError("Could not decrypt the existing entry."));
             }
         });
     }
@@ -120,42 +142,49 @@ public class AddEditEntryController {
 
     @FXML
     private void handleTogglePassword() {
-        togglePasswordVisibility(!passwordVisible2);
+        togglePasswordVisibility(!passwordShown);
     }
 
     private void togglePasswordVisibility(boolean show) {
-        passwordVisible2 = show;
+        passwordShown = show;
         passwordField.setVisible(!show);
         passwordField.setManaged(!show);
         passwordVisible.setVisible(show);
         passwordVisible.setManaged(show);
         togglePasswordBtn.setText(show ? "Hide" : "Show");
-        if (show) {
-            passwordVisible.setText(passwordField.getText());
-        } else {
-            passwordField.setText(passwordVisible.getText());
-        }
     }
 
     @FXML
     private void handleGenerate() {
+        boolean anyClass = uppercaseCheck.isSelected() || lowercaseCheck.isSelected()
+            || digitsCheck.isSelected() || specialCheck.isSelected();
+        if (!anyClass) {
+            showError("Select at least one character type.");
+            return;
+        }
+
         int length = lengthSlider != null ? (int) lengthSlider.getValue() : 20;
         GeneratorOptions opts = new GeneratorOptions(
             length,
-            uppercaseCheck != null && uppercaseCheck.isSelected(),
-            lowercaseCheck != null && lowercaseCheck.isSelected(),
-            digitsCheck != null && digitsCheck.isSelected(),
-            specialCheck != null && specialCheck.isSelected()
+            uppercaseCheck.isSelected(),
+            lowercaseCheck.isSelected(),
+            digitsCheck.isSelected(),
+            specialCheck.isSelected()
         );
-        String generated = CryptoService.getInstance().generatePassword(opts);
-        passwordField.setText(generated);
-        passwordVisible.setText(generated);
+
+        try {
+            String generated = CryptoService.getInstance().generatePassword(opts);
+            passwordVisible.setText(generated);
+            hideError();
+        } catch (IllegalArgumentException e) {
+            showError(e.getMessage());
+        }
     }
 
     @FXML
     private void handleSave() {
         String title = titleField.getText().trim();
-        String password = passwordVisible2 ? passwordVisible.getText() : passwordField.getText();
+        String password = passwordVisible.getText();
         String username = usernameField.getText().trim();
         String url = urlField.getText().trim();
         String category = categoryCombo.getValue();
@@ -166,49 +195,62 @@ public class AddEditEntryController {
             showError("Title is required.");
             return;
         }
+        if (title.length() > MAX_TITLE_LENGTH) {
+            showError("Title must be at most " + MAX_TITLE_LENGTH + " characters.");
+            return;
+        }
         if (password.isEmpty()) {
             showError("Password is required.");
             return;
         }
+        if (notes.length() > MAX_NOTES_LENGTH) {
+            showError("Notes must be at most " + MAX_NOTES_LENGTH + " characters.");
+            return;
+        }
+        if (category == null || category.isBlank()) {
+            category = "Login";
+        }
 
-        errorLabel.setVisible(false);
+        hideError();
         saveBtn.setDisable(true);
         saveBtn.setText("Saving...");
 
+        final String chosenCategory = category;
         Thread.ofVirtual().start(() -> {
             try {
                 byte[] key = SessionService.getInstance().getVaultKey();
-                EncryptedData encPwd = CryptoService.getInstance().encrypt(password, key);
+                try {
+                    EncryptedData encPwd = CryptoService.getInstance().encrypt(password, key);
+                    String notesIv = null, notesCipher = null;
+                    if (!notes.isEmpty()) {
+                        EncryptedData encNotes = CryptoService.getInstance().encrypt(notes, key);
+                        notesIv = encNotes.iv();
+                        notesCipher = encNotes.ciphertext();
+                    }
 
-                String notesIv = null, notesCipher = null;
-                if (!notes.isEmpty()) {
-                    EncryptedData encNotes = CryptoService.getInstance().encrypt(notes, key);
-                    notesIv = encNotes.iv();
-                    notesCipher = encNotes.ciphertext();
-                }
+                    String userId = SessionService.getInstance().getUserId();
+                    String finalUsername = username.isEmpty() ? null : username;
+                    String finalUrl = url.isEmpty() ? null : url;
 
-                String userId = SessionService.getInstance().getUserId();
-
-                if (isEditing && editingEntry != null) {
-                    DatabaseService.getInstance().updateEntry(
-                        editingEntry.id(), userId, title,
-                        username.isEmpty() ? null : username,
-                        url.isEmpty() ? null : url,
-                        category, favorite,
-                        encPwd.iv(), encPwd.ciphertext(),
-                        notesIv, notesCipher
-                    );
-                } else {
-                    VaultEntry newEntry = new VaultEntry(
-                        UUID.randomUUID().toString(), userId,
-                        title, username.isEmpty() ? null : username,
-                        url.isEmpty() ? null : url,
-                        category, favorite,
-                        encPwd.iv(), encPwd.ciphertext(),
-                        notesIv, notesCipher,
-                        LocalDateTime.now(), LocalDateTime.now()
-                    );
-                    DatabaseService.getInstance().createEntry(newEntry);
+                    if (isEditing && editingEntry != null) {
+                        DatabaseService.getInstance().updateEntry(
+                            editingEntry.id(), userId, title, finalUsername, finalUrl,
+                            chosenCategory, favorite,
+                            encPwd.iv(), encPwd.ciphertext(),
+                            notesIv, notesCipher
+                        );
+                    } else {
+                        VaultEntry newEntry = new VaultEntry(
+                            UUID.randomUUID().toString(), userId,
+                            title, finalUsername, finalUrl, chosenCategory, favorite,
+                            encPwd.iv(), encPwd.ciphertext(),
+                            notesIv, notesCipher,
+                            LocalDateTime.now(), LocalDateTime.now()
+                        );
+                        DatabaseService.getInstance().createEntry(newEntry);
+                    }
+                } finally {
+                    Arrays.fill(key, (byte) 0);
                 }
 
                 Platform.runLater(() -> {
@@ -216,8 +258,9 @@ public class AddEditEntryController {
                     closeDialog();
                 });
             } catch (Exception e) {
+                LOG.log(Level.WARNING, "Failed to save entry", e);
                 Platform.runLater(() -> {
-                    showError("Save failed: " + e.getMessage());
+                    showError("Could not save the entry. Please try again.");
                     saveBtn.setDisable(false);
                     saveBtn.setText(isEditing ? "Update Entry" : "Save Entry");
                 });
@@ -231,6 +274,9 @@ public class AddEditEntryController {
     }
 
     private void closeDialog() {
+        // Drop the plaintext from the UI before the window goes away.
+        passwordVisible.setText("");
+        notesArea.setText("");
         Stage stage = (Stage) saveBtn.getScene().getWindow();
         stage.close();
     }
@@ -239,16 +285,24 @@ public class AddEditEntryController {
         Platform.runLater(() -> {
             errorLabel.setText(msg);
             errorLabel.setVisible(true);
+            errorLabel.setManaged(true);
         });
+    }
+
+    private void hideError() {
+        errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
     }
 
     private void updateStrengthMeter(String password) {
         if (strengthRow == null) return;
-        if (password.isEmpty()) {
+        if (password == null || password.isEmpty()) {
             strengthRow.setVisible(false);
+            strengthRow.setManaged(false);
             return;
         }
         strengthRow.setVisible(true);
+        strengthRow.setManaged(true);
         int score = CryptoService.getInstance().passwordStrength(password);
         String[] labels = {"Very Weak", "Weak", "Fair", "Strong", "Very Strong"};
         String[] styles = {"strength-very-weak", "strength-weak", "strength-fair",

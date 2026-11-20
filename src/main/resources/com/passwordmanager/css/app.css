@@ -619,3 +619,89 @@
     -fx-border-color: -border;
     -fx-border-width: 1px 0 0 0;
 }
+
+/* ── Sidebar user + audit ─────────────────────────────────────── */
+.sidebar-username {
+    -fx-font-size: 12px;
+    -fx-text-fill: -text-muted;
+}
+
+.btn-audit {
+    -fx-background-color: rgba(34,197,94,0.10);
+    -fx-border-color: rgba(34,197,94,0.30);
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-text-fill: #4ADE80;
+    -fx-font-size: 13px;
+    -fx-padding: 10px 16px;
+    -fx-cursor: hand;
+}
+
+.btn-audit:hover {
+    -fx-background-color: rgba(34,197,94,0.20);
+    -fx-border-color: -clr-success;
+}
+
+/* ── Security audit dialog ────────────────────────────────────── */
+.dialog-pane {
+    -fx-background-color: -bg-surface;
+}
+
+.dialog-pane .label {
+    -fx-text-fill: -text-primary;
+}
+
+.dialog-pane .button {
+    -fx-background-color: -bg-elevated;
+    -fx-text-fill: -text-primary;
+    -fx-border-color: -border;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+}
+
+.dialog-pane .button:hover {
+    -fx-background-color: #2D333B;
+}
+
+.audit-content {
+    -fx-padding: 4px 18px 4px 2px;
+}
+
+.audit-score {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #4ADE80;
+}
+
+.audit-summary {
+    -fx-font-size: 13px;
+    -fx-text-fill: -text-secondary;
+}
+
+.audit-row {
+    -fx-padding: 6px 0;
+    -fx-border-color: -border;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.audit-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: -text-secondary;
+}
+
+.audit-value {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.audit-detail {
+    -fx-font-size: 11px;
+    -fx-text-fill: -text-muted;
+}
+
+.audit-warning {
+    -fx-font-size: 11px;
+    -fx-text-fill: -clr-warning;
+}

@@ -1,19 +1,27 @@
 package com.passwordmanager.controllers;
 
 import com.passwordmanager.App;
+import com.passwordmanager.models.User;
+import com.passwordmanager.services.AuthService;
 import com.passwordmanager.services.CryptoService;
-import com.passwordmanager.services.DatabaseService;
 import com.passwordmanager.services.SessionService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.scene.control.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
+import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 
 import java.util.Arrays;
-import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class RegisterController {
+
+    private static final Logger LOG = Logger.getLogger(RegisterController.class.getName());
 
     @FXML private TextField usernameField;
     @FXML private PasswordField passwordField;
@@ -28,19 +36,24 @@ public class RegisterController {
     @FXML
     public void initialize() {
         errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
         strengthRow.setVisible(false);
+        strengthRow.setManaged(false);
 
-        passwordField.textProperty().addListener((obs, oldVal, newVal) -> {
-            updateStrengthMeter(newVal);
-        });
+        passwordField.textProperty().addListener((obs, oldVal, newVal) ->
+            updateStrengthMeter(newVal)
+        );
+        Platform.runLater(usernameField::requestFocus);
     }
 
     private void updateStrengthMeter(String password) {
-        if (password.isEmpty()) {
+        if (password == null || password.isEmpty()) {
             strengthRow.setVisible(false);
+            strengthRow.setManaged(false);
             return;
         }
         strengthRow.setVisible(true);
+        strengthRow.setManaged(true);
         int score = CryptoService.getInstance().passwordStrength(password);
         String[] labels = {"Very Weak", "Weak", "Fair", "Strong", "Very Strong"};
         String[] styles = {"strength-very-weak", "strength-weak", "strength-fair",
@@ -60,34 +73,8 @@ public class RegisterController {
 
         hideError();
 
-        // Validation
-        if (username.isBlank()) {
-            showError("Username is required.");
-            clearPasswords(password, confirm);
-            return;
-        }
-        if (username.length() < 3 || username.length() > 50) {
-            showError("Username must be between 3 and 50 characters.");
-            clearPasswords(password, confirm);
-            return;
-        }
-        if (!username.matches("[a-zA-Z0-9_.-]+")) {
-            showError("Username may only contain letters, digits, underscores, dots and hyphens.");
-            clearPasswords(password, confirm);
-            return;
-        }
-        if (password.length < 8) {
-            showError("Master password must be at least 8 characters.");
-            clearPasswords(password, confirm);
-            return;
-        }
         if (!Arrays.equals(password, confirm)) {
             showError("Passwords do not match.");
-            clearPasswords(password, confirm);
-            return;
-        }
-        if (CryptoService.getInstance().passwordStrength(new String(password)) < 2) {
-            showError("Master password is too weak. Use a mix of letters, numbers and symbols.");
             clearPasswords(password, confirm);
             return;
         }
@@ -100,6 +87,11 @@ public class RegisterController {
         Thread.ofVirtual().start(() -> {
             try {
                 performRegistration(username, pwdCopy);
+            } catch (AuthService.AuthException e) {
+                showError(e.getMessage());
+            } catch (Exception e) {
+                LOG.log(Level.SEVERE, "Registration failed", e);
+                showError("Registration failed. Please try again.");
             } finally {
                 Arrays.fill(pwdCopy, '\0');
                 Platform.runLater(() -> setLoading(false));
@@ -107,35 +99,20 @@ public class RegisterController {
         });
     }
 
-    private void performRegistration(String username, char[] password) {
+    private void performRegistration(String username, char[] password) throws Exception {
+        User user = AuthService.getInstance().register(username, password);
+
+        byte[] vaultKey = CryptoService.getInstance()
+            .deriveVaultKey(password, user.passwordSalt());
         try {
-            // Check username uniqueness
-            if (DatabaseService.getInstance().findUserByUsername(username).isPresent()) {
-                showError("Username already taken. Please choose another.");
-                return;
-            }
-
-            // Hash master password
-            String[] hashResult = CryptoService.getInstance().hashMasterPassword(password);
-            String salt = hashResult[0];
-            String hash = hashResult[1];
-
-            // Derive vault key for the new session
-            byte[] vaultKey = CryptoService.getInstance().deriveVaultKey(password, salt);
-
-            // Persist user
-            String userId = UUID.randomUUID().toString();
-            DatabaseService.getInstance().createUser(userId, username, hash, salt);
-
-            // Create session and go to vault
-            SessionService.getInstance().create(userId, vaultKey, App::showLogin);
+            SessionService.getInstance().create(
+                user.id(), user.username(), vaultKey, App::showLogin);
+            App.setLastUsername(user.username());
+        } finally {
             Arrays.fill(vaultKey, (byte) 0);
-
-            App.showVault();
-
-        } catch (Exception e) {
-            showError("Registration failed: " + e.getMessage());
         }
+
+        App.showVault();
     }
 
     @FXML
@@ -147,11 +124,13 @@ public class RegisterController {
         Platform.runLater(() -> {
             errorLabel.setText(msg);
             errorLabel.setVisible(true);
+            errorLabel.setManaged(true);
         });
     }
 
     private void hideError() {
         errorLabel.setVisible(false);
+        errorLabel.setManaged(false);
     }
 
     private void setLoading(boolean loading) {

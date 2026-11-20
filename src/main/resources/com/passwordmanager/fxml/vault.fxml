@@ -12,10 +12,13 @@
         <padding><Insets top="24" right="0" bottom="24" left="0"/></padding>
 
         <!-- App brand -->
-        <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 0 16 20 16;">
+        <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 0 16 6 16;">
             <Label text="🔐" style="-fx-font-size: 22px;"/>
             <Label text="Vault" styleClass="sidebar-brand"/>
         </HBox>
+
+        <Label fx:id="usernameLabel" text="" styleClass="sidebar-username"
+               style="-fx-padding: 0 16 14 16;"/>
 
         <Separator styleClass="sidebar-sep"/>
 
@@ -28,6 +31,8 @@
 
         <!-- Session info -->
         <VBox spacing="8" style="-fx-padding: 16 16 8 16;">
+            <Button fx:id="auditBtn" text="🛡  Security Check" styleClass="btn-audit"
+                    maxWidth="Infinity" onAction="#handleSecurityAudit"/>
             <Label fx:id="sessionTimerLabel" text="⏱ 15:00" styleClass="session-timer"/>
             <Button fx:id="lockBtn" text="🔒  Lock Vault" styleClass="btn-lock"
                     maxWidth="Infinity" onAction="#handleLock"/>
@@ -54,7 +59,7 @@
             <Label fx:id="emptyStateLabel"
                    text="No entries yet.\nClick + to add your first password."
                    styleClass="empty-state" wrapText="true" textAlignment="CENTER"
-                   visible="false" StackPane.alignment="CENTER"/>
+                   visible="false" managed="false" StackPane.alignment="CENTER"/>
         </StackPane>
     </VBox>
 
@@ -118,11 +123,13 @@
                     </VBox>
 
                     <!-- Notes (hidden if empty) -->
-                    <HBox fx:id="notesRow" spacing="4" visible="false">
+                    <HBox fx:id="notesRow" spacing="8" visible="false" managed="false" alignment="CENTER_LEFT">
                         <VBox spacing="4" HBox.hgrow="ALWAYS">
                             <Label text="NOTES" styleClass="detail-field-label"/>
                             <Label fx:id="detailNotes" styleClass="detail-field-value" wrapText="true"/>
                         </VBox>
+                        <Button fx:id="notesRevealBtn" text="Reveal" styleClass="btn-secondary"
+                                onAction="#handleRevealNotes"/>
                     </HBox>
 
                     <!-- Created date -->

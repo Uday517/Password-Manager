@@ -4,16 +4,22 @@ import com.passwordmanager.models.User;
 import com.passwordmanager.models.VaultEntry;
 import com.passwordmanager.utils.AppPaths;
 
-import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -21,10 +27,15 @@ import java.util.logging.Logger;
  *
  * Security design:
  * - Every query uses PreparedStatement — zero string concatenation in SQL
- * - WAL mode for crash safety
+ * - WAL mode with synchronous=FULL for crash safety
  * - Foreign keys enforced at the DB level
- * - DB file permissions set to 0600 (owner read/write only) on POSIX systems
- * - Schema versioned via schema_migrations table
+ * - Data directory 0700, database and side files 0600 on POSIX systems
+ * - secure_delete so removed rows do not linger in free pages
+ * - Schema versioned via a schema_migrations table
+ *
+ * Thread safety: SQLite JDBC connections are not safe for concurrent use.
+ * Every public method is synchronized so the virtual-thread callers in the
+ * controllers are serialized onto the single connection.
  */
 public class DatabaseService {
 
@@ -45,46 +56,60 @@ public class DatabaseService {
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
-    public void initialize() throws Exception {
+    public synchronized void initialize() throws Exception {
+        if (conn != null && !conn.isClosed()) {
+            return;
+        }
+
         Path dbPath = AppPaths.getDatabasePath();
-        Files.createDirectories(dbPath.getParent());
+        Path dataDir = dbPath.getParent();
+        if (dataDir == null) {
+            throw new IOException("Database path has no parent directory: " + dbPath);
+        }
+        Files.createDirectories(dataDir);
+        hardenDirectory(dataDir);
 
         String url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
         conn = DriverManager.getConnection(url);
 
-        // Set restrictive file permissions on POSIX systems (Linux/macOS)
         try {
-            File dbFile = dbPath.toFile();
-            if (dbFile.exists()) {
-                Files.setPosixFilePermissions(dbPath, PosixFilePermissions.fromString("rw-------"));
+            // Performance and safety pragmas
+            try (Statement st = conn.createStatement()) {
+                st.execute("PRAGMA journal_mode=WAL");
+                st.execute("PRAGMA foreign_keys=ON");
+                st.execute("PRAGMA synchronous=FULL");
+                st.execute("PRAGMA busy_timeout=5000");
+                st.execute("PRAGMA secure_delete=ON");
+                st.execute("PRAGMA journal_size_limit=67108864");
+                st.execute("PRAGMA trusted_schema=OFF");
             }
-        } catch (UnsupportedOperationException e) {
-            // Windows does not support POSIX permissions — skip
+
+            runMigrations();
+            hardenFiles(dbPath);
+        } catch (Exception e) {
+            closeQuietly();
+            throw e;
         }
 
-        // Performance and safety pragmas
-        try (Statement st = conn.createStatement()) {
-            st.execute("PRAGMA journal_mode=WAL");
-            st.execute("PRAGMA foreign_keys=ON");
-            st.execute("PRAGMA synchronous=NORMAL");
-        }
-
-        runMigrations();
         LOG.info("Database initialized at: " + dbPath);
     }
 
-    public void close() {
-        try {
-            if (conn != null && !conn.isClosed()) {
-                conn.close();
+    public synchronized void close() {
+        if (conn != null) {
+            try {
+                if (!conn.isClosed()) {
+                    conn.close();
+                }
+            } catch (SQLException e) {
+                LOG.log(Level.WARNING, "Error closing database", e);
+            } finally {
+                conn = null;
             }
-        } catch (SQLException e) {
-            LOG.warning("Error closing database: " + e.getMessage());
         }
     }
 
-    public boolean hasAnyUser() throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM users");
+    public synchronized boolean hasAnyUser() throws SQLException {
+        try (PreparedStatement ps = requireConn().prepareStatement("SELECT COUNT(*) FROM users");
              ResultSet rs = ps.executeQuery()) {
             return rs.next() && rs.getInt(1) > 0;
         }
@@ -92,10 +117,10 @@ public class DatabaseService {
 
     // ─── Users ────────────────────────────────────────────────────────────────
 
-    public Optional<User> findUserByUsername(String username) throws SQLException {
+    public synchronized Optional<User> findUserByUsername(String username) throws SQLException {
         String sql = "SELECT id, username, password_hash, password_salt, created_at, " +
                      "failed_attempts, locked_until FROM users WHERE username = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, username);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -106,11 +131,25 @@ public class DatabaseService {
         return Optional.empty();
     }
 
-    public void createUser(String id, String username, String passwordHash, String passwordSalt)
-            throws SQLException {
+    public synchronized Optional<User> findUserById(String id) throws SQLException {
+        String sql = "SELECT id, username, password_hash, password_salt, created_at, " +
+                     "failed_attempts, locked_until FROM users WHERE id = ?";
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapUser(rs));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public synchronized void createUser(String id, String username, String passwordHash,
+                                        String passwordSalt) throws SQLException {
         String sql = "INSERT INTO users (id, username, password_hash, password_salt, created_at) " +
                      "VALUES (?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, id);
             ps.setString(2, username);
             ps.setString(3, passwordHash);
@@ -118,41 +157,45 @@ public class DatabaseService {
             ps.setString(5, now());
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void incrementFailedAttempts(String userId) throws SQLException {
+    public synchronized void incrementFailedAttempts(String userId) throws SQLException {
         String sql = "UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void lockUser(String userId, LocalDateTime until) throws SQLException {
+    public synchronized void lockUser(String userId, LocalDateTime until) throws SQLException {
         String sql = "UPDATE users SET locked_until = ? WHERE id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, until.format(DT_FMT));
             ps.setString(2, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void resetFailedAttempts(String userId) throws SQLException {
+    public synchronized void resetFailedAttempts(String userId) throws SQLException {
         String sql = "UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
     // ─── Vault Entries ────────────────────────────────────────────────────────
 
-    public List<VaultEntry> getEntriesForUser(String userId) throws SQLException {
+    public synchronized List<VaultEntry> getEntriesForUser(String userId) throws SQLException {
         String sql = "SELECT id, user_id, title, entry_username, url, category, is_favorite, " +
                      "password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at " +
                      "FROM vault_entries WHERE user_id = ? ORDER BY updated_at DESC";
         List<VaultEntry> entries = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -163,11 +206,12 @@ public class DatabaseService {
         return entries;
     }
 
-    public Optional<VaultEntry> getEntry(String entryId, String userId) throws SQLException {
+    public synchronized Optional<VaultEntry> getEntry(String entryId, String userId)
+            throws SQLException {
         String sql = "SELECT id, user_id, title, entry_username, url, category, is_favorite, " +
                      "password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at " +
                      "FROM vault_entries WHERE id = ? AND user_id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, entryId);
             ps.setString(2, userId);
             try (ResultSet rs = ps.executeQuery()) {
@@ -177,12 +221,12 @@ public class DatabaseService {
         return Optional.empty();
     }
 
-    public void createEntry(VaultEntry entry) throws SQLException {
+    public synchronized void createEntry(VaultEntry entry) throws SQLException {
         String sql = "INSERT INTO vault_entries " +
                      "(id, user_id, title, entry_username, url, category, is_favorite, " +
                      " password_iv, password_cipher, notes_iv, notes_cipher, created_at, updated_at) " +
                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1,  entry.id());
             ps.setString(2,  entry.userId());
             ps.setString(3,  entry.title());
@@ -198,16 +242,17 @@ public class DatabaseService {
             ps.setString(13, now());
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void updateEntry(String entryId, String userId, String title, String entryUsername,
-                            String url, String category, boolean isFavorite,
-                            String passwordIv, String passwordCipher,
-                            String notesIv, String notesCipher) throws SQLException {
+    public synchronized void updateEntry(String entryId, String userId, String title,
+                                         String entryUsername, String url, String category,
+                                         boolean isFavorite, String passwordIv, String passwordCipher,
+                                         String notesIv, String notesCipher) throws SQLException {
         String sql = "UPDATE vault_entries SET title=?, entry_username=?, url=?, category=?, " +
                      "is_favorite=?, password_iv=?, password_cipher=?, notes_iv=?, notes_cipher=?, " +
                      "updated_at=? WHERE id=? AND user_id=?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1,  title);
             ps.setString(2,  entryUsername);
             ps.setString(3,  url);
@@ -222,25 +267,29 @@ public class DatabaseService {
             ps.setString(12, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void deleteEntry(String entryId, String userId) throws SQLException {
+    public synchronized void deleteEntry(String entryId, String userId) throws SQLException {
         String sql = "DELETE FROM vault_entries WHERE id = ? AND user_id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setString(1, entryId);
             ps.setString(2, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
-    public void toggleFavorite(String entryId, String userId, boolean isFavorite) throws SQLException {
+    public synchronized void toggleFavorite(String entryId, String userId, boolean isFavorite)
+            throws SQLException {
         String sql = "UPDATE vault_entries SET is_favorite = ? WHERE id = ? AND user_id = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = requireConn().prepareStatement(sql)) {
             ps.setInt(1, isFavorite ? 1 : 0);
             ps.setString(2, entryId);
             ps.setString(3, userId);
             ps.executeUpdate();
         }
+        hardenSideFiles();
     }
 
     // ─── Schema Migrations ────────────────────────────────────────────────────
@@ -346,5 +395,63 @@ public class DatabaseService {
 
     private String now() {
         return LocalDateTime.now().format(DT_FMT);
+    }
+
+    private Connection requireConn() throws SQLException {
+        if (conn == null || conn.isClosed()) {
+            throw new SQLException("Database is not initialized");
+        }
+        return conn;
+    }
+
+    private void closeQuietly() {
+        try {
+            if (conn != null) conn.close();
+        } catch (SQLException ignored) {
+            // already failing; nothing useful to do
+        } finally {
+            conn = null;
+        }
+    }
+
+    // ─── File permissions ─────────────────────────────────────────────────────
+
+    private static void hardenDirectory(Path dir) {
+        try {
+            Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+        } catch (UnsupportedOperationException | IOException e) {
+            // Windows or a filesystem without POSIX permissions — skip
+        }
+    }
+
+    private void hardenSideFiles() {
+        hardenFiles(AppPaths.getDatabasePath());
+    }
+
+    private static void hardenFiles(Path dbPath) {
+        setOwnerOnly(dbPath);
+        setOwnerOnly(dbPath.resolveSibling(dbPath.getFileName() + "-wal"));
+        setOwnerOnly(dbPath.resolveSibling(dbPath.getFileName() + "-shm"));
+        setOwnerOnly(dbPath.resolveSibling(dbPath.getFileName() + "-journal"));
+    }
+
+    private static void setOwnerOnly(Path file) {
+        try {
+            if (Files.exists(file)) {
+                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+            }
+        } catch (UnsupportedOperationException | IOException e) {
+            // Windows or a filesystem without POSIX permissions — skip
+        }
+    }
+
+    // ─── Test hooks ───────────────────────────────────────────────────────────
+
+    /** Closes the connection and forgets the singleton. Test suites only. */
+    static synchronized void resetForTests() {
+        if (instance != null) {
+            instance.close();
+            instance = null;
+        }
     }
 }

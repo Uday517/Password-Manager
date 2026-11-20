@@ -7,3 +7,6 @@ target/
 *.iml
 .idea/
 *.tmp
+
+# jqwik property-test database
+.jqwik-database
